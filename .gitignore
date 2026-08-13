@@ -1,0 +1,26 @@
+# --- Python bytecode & caches ---
+__pycache__/
+*.py[cod]
+$py.class
+.pytest_cache/
+*.egg-info/
+
+# --- Runtime data (regenerated every run; never version) ---
+# SQLite store, content-addressed snapshots, idempotency state, caches.
+# seed_phase1() reads real on-disk snapshots to hash them, so the seed and
+# test_seed_and_reconstruction are integration tests that depend on a
+# populated data/ on the operator's machine — that is intentional.
+data/
+logs/
+queue/
+
+# --- Secrets: Obsidian Local REST API tokens etc. ---
+config/rest.env
+config/*.env
+!config/*.env.example
+
+# --- Editor / OS cruft ---
+.DS_Store
+*.swp
+.idea/
+.vscode/

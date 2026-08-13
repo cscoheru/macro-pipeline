@@ -1,0 +1,2 @@
+# Dev dependencies for macro-pipeline.
+pytest>=8.0

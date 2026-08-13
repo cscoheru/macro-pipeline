@@ -1,0 +1,136 @@
+# Macro data source registry.
+# Add a source -> add config here + a processor hook in run.py dispatch table.
+
+# ============================================================
+# 美国 (Phase 1) — FRED CSV
+# ============================================================
+fred:
+  economy: us
+  enabled: true
+  series:
+    - {id: FEDFUNDS,  name: "联邦基金利率",      unit: "%",        display: level}
+    - {id: CPIAUCSL,  name: "CPI (headline)",   unit: "指数",      display: yoy}
+    - {id: PCEPI,     name: "PCE 物价指数",     unit: "指数",      display: yoy}
+    - {id: PAYEMS,    name: "非农就业",         unit: "千人",      display: level}
+    - {id: UNRATE,    name: "失业率",           unit: "%",        display: level}
+    - {id: GDPC1,     name: "实际GDP",          unit: "2017=100",  display: yoy}
+    - {id: GFDEBTN,   name: "联邦债务总额",     unit: "百万$",     display: yoy}
+    - {id: FYFSD,     name: "联邦财政赤字(财年)", unit: "百万$",     display: level}
+
+# ============================================================
+# 中国 (Phase 3) — HTML 发布稿 (listing -> discover -> parse)
+# 每源单独 parser；解析失败告警不崩
+# ============================================================
+cn_mof:
+  economy: cn
+  enabled: true
+  type: cn_release
+  listing_url: "http://www.mof.gov.cn/gkml/caizhengshuju/"
+  title_regex: '2026年.*财政收支情况'
+  parser: parse_mof_fiscal
+  # metrics 由 parser 返回；这里仅列示便于核对
+  metric_keys: [mof_revenue, mof_expenditure, mof_central_exp, mof_local_exp, mof_govfund_rev, mof_govfund_exp, mof_land]
+
+cn_stats_inv:
+  economy: cn
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.stats.gov.cn/sj/zxfb/"
+  title_regex: '全国固定资产投资基本情况'
+  parser: parse_stats_investment
+  metric_keys: [inv_total, inv_infra, inv_private]
+
+cn_stats_cpi:
+  economy: cn
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.stats.gov.cn/sj/zxfb/"
+  title_regex: '居民消费价格同比'
+  parser: parse_stats_cpi
+  metric_keys: [cpi_yoy]
+
+cn_stats_ppi:
+  economy: cn
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.stats.gov.cn/sj/zxfb/"
+  title_regex: '工业生产者出厂价格同比'
+  parser: parse_stats_ppi
+  metric_keys: [ppi_yoy]
+
+cn_stats_pmi:
+  economy: cn
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.stats.gov.cn/sj/zxfb/"
+  title_regex: '采购经理指数运行情况'
+  parser: parse_stats_pmi
+  metric_keys: [pmi_mfg]
+
+cn_pbc:
+  economy: cn
+  enabled: true
+  type: cn_release
+  listing_url: "http://www.pbc.gov.cn/diaochatongjisi/116219/index.html"
+  title_regex: '2026年.*金融统计数据报告'
+  parser: parse_pbc_financial
+  metric_keys: [pbc_m2, pbc_m1, pbc_tsfs]
+
+# cn_customs (海关进出口) — 延期：customs.gov.cn 被 WAF 锁死(412)，需 browse daemon 或付费镜像
+
+# 后续 Phase 3 扩展：
+#   cn_stats_cpi  (统计局 CPI/PPI)
+#   cn_stats_pmi  (统计局 PMI)
+#   cn_pbc        (央行 M2/M1/社融)
+#   cn_customs    (海关进出口)
+
+# ============================================================
+# 框架触发规则 — 每次跑后评估，命中的 flag 附进 待解读 简报
+# 单指标规则(safe, 无 eval)；跨序列(如M2-CPI背离)留 Phase 2/3 扩展
+# ============================================================
+triggers:
+  # --- 美国 (Phase 1) ---
+  - id: us_unrate_jump
+    flag: "F2/F5 美国就业恶化（财政主导副作用观察）"
+    metric: {source: fred, series: UNRATE, field: value}
+    op: gt
+    threshold: 4.5
+    note: "失业率 > 4.5%"
+  - id: us_ffr_high
+    flag: "F2 货币仍紧（财政主导：高利率压债息）"
+    metric: {source: fred, series: FEDFUNDS, field: value}
+    op: gt
+    threshold: 3.75
+    note: "联邦基金利率 > 3.75%（加息方向压力）"
+  # --- 中国 (Phase 3) ---
+  - id: cn_local_exp_neg
+    flag: "F6 政绩观跟踪（地方支出转负）"
+    metric: {source: cn_mof, series: mof_local_exp, field: yoy_pct}
+    op: lt
+    threshold: 0
+    note: "地方一般公共预算支出同比 < 0（基建/资本开支被压）"
+  - id: cn_inv_infra_neg
+    flag: "F6 基建投资转负（政绩观窗口持续）"
+    metric: {source: cn_stats_inv, series: inv_infra, field: yoy_pct}
+    op: lt
+    threshold: 0
+    note: "基础设施投资累计同比 < 0"
+  - id: cn_land_collapse
+    flag: "F3/F4 土地财政恶化（房地产蓄水池破裂，关联 M2 之谜）"
+    metric: {source: cn_mof, series: mof_land, field: yoy_pct}
+    op: lt
+    threshold: -20
+    note: "土地出让收入同比 < -20%"
+  # --- 跨序列触发 (Phase 2) — 对缓存最新值做组合判断；仅当某组成序列本轮有新数据时评估 ---
+  - id: cn_two_valves
+    type: cross
+    flag: "F1流速/F4两阀门（M2−CPI 背离扩大：货币冻在账上）"
+    expr: {a: {source: cn_pbc, series: pbc_m2, field: yoy_pct}, op: minus, b: {source: cn_stats_cpi, series: cpi_yoy, field: yoy_pct}}
+    compare: {op: gt, threshold: 5}
+    note: "M2同比 − CPI同比 > 5pp"
+  - id: cn_velocity_collapse
+    type: cross
+    flag: "F1 流通速度下降（M2增速远超M1：钱在定期化）"
+    expr: {a: {source: cn_pbc, series: pbc_m2, field: yoy_pct}, op: minus, b: {source: cn_pbc, series: pbc_m1, field: yoy_pct}}
+    compare: {op: gt, threshold: 3}
+    note: "M2同比 − M1同比 > 3pp"
