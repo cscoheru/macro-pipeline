@@ -10,6 +10,7 @@ so DeepSeek's weaker server-side JSON enforcement is harmless — any schema or
 fact deviation lands in needs_review. Secrets are read only from config/insight.env
 (mode 600) and never logged, echoed, or persisted in the ledger/artifact/vault.
 """
+import hashlib
 import json
 import os
 import stat
@@ -193,6 +194,31 @@ def _request_with_retry(url, headers, payload, config, post, sleep):
     raise ProviderError("provider retry loop exhausted", retryable=True)
 
 
+def _persist_raw_failure(text):
+    """Best-effort: keep unparsable model output for diagnosis.
+
+    Without this, an invalid_json failure left no trace of what the model
+    actually returned (e.g. a truncation vs. prose answer is indistinguishable).
+    Content-addressed under failed_responses/, mode 600, never raises.
+    """
+    try:
+        directory = os.path.join(paths.INSIGHT_DIR, "failed_responses")
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        digest = hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+        target = os.path.join(directory, f"{digest}.txt")
+        if not os.path.exists(target):
+            tmp = f"{target}.tmp"
+            with open(tmp, "w", encoding="utf-8") as handle:
+                handle.write(text or "")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, target)
+        return target
+    except OSError:
+        return None
+
+
 def _coerce_json_object(text):
     """Parse a JSON object from model text, tolerating stray code fences."""
     text = (text or "").strip()
@@ -208,8 +234,10 @@ def _coerce_json_object(text):
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as exc:
+        path = _persist_raw_failure(text)
+        suffix = f" (raw output kept at {path})" if path else ""
         raise ProviderError(
-            "provider returned invalid JSON", error_class="invalid_json"
+            f"provider returned invalid JSON{suffix}", error_class="invalid_json"
         ) from exc
     if not isinstance(parsed, dict):
         raise ProviderError("provider JSON must be an object", error_class="invalid_json")
@@ -227,12 +255,56 @@ def _extract_anthropic_json(response_body):
     return _coerce_json_object(text)
 
 
+def _salvage_json_from_reasoning(reasoning):
+    """Extract the last balanced {...} block from reasoning_content.
+
+    deepseek-reasoner occasionally finishes (finish_reason=stop) with the
+    answer draft left in reasoning_content and an empty content field.
+    Anything salvaged still goes through _coerce_json_object and the hard
+    validator, so this widens recovery without weakening any gate.
+    """
+    text = reasoning or ""
+    for start in range(text.rfind("{"), -1, -1):
+        if text[start] != "{":
+            continue
+        depth = 0
+        for index in range(start, len(text)):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:index + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+                    if isinstance(parsed, dict):
+                        return json.dumps(parsed, ensure_ascii=False)
+                    break
+        # no balanced object at this '{' — try the previous one
+    return None
+
+
 def _extract_openai_json(response_body):
     choices = response_body.get("choices")
     if not isinstance(choices, list) or not choices:
         raise ProviderError("provider response has no choices", error_class="invalid_response")
-    message = choices[0].get("message") or {}
-    return _coerce_json_object(message.get("content"))
+    choice = choices[0]
+    message = choice.get("message") or {}
+    content = message.get("content")
+    if not (content or "").strip():
+        salvaged = _salvage_json_from_reasoning(message.get("reasoning_content"))
+        if salvaged:
+            return _coerce_json_object(salvaged)
+        # Distinguish "reasoning burned the whole budget" (finish_reason=length,
+        # raise max_tokens or simplify the fact pack) from a genuinely empty answer.
+        finish = choice.get("finish_reason")
+        raise ProviderError(
+            f"provider returned empty content (finish_reason={finish})",
+            error_class="invalid_response",
+        )
+    return _coerce_json_object(content)
 
 
 def _fact_pack_text(fact_pack, config):
