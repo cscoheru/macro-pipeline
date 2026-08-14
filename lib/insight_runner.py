@@ -212,6 +212,10 @@ def publish_ready(conn, *, writer, actor="system"):
             conn.commit()
             failures.append((ins_id, error_class))
             continue
+        # publish() itself never commits — persist each success so a later
+        # failure or an abandoned connection cannot roll back a vault write
+        # that already happened (vault PUT and ledger event must not diverge).
+        conn.commit()
         published += 1
     return published, failures
 

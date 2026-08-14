@@ -369,7 +369,7 @@ def test_renderer_has_fixed_path_frontmatter_and_content_hash(insight_case, tmp_
         input_sha256=insight_case["digest"], prompt_version="prompt-v1",
         generated_at="2026-08-14T09:07:00+00:00",
     )
-    assert rendered.vault_path == "洞察/2026/2026-06-11111111.md"
+    assert rendered.vault_path == "洞察/2026/2026-06-" + "1" * 12 + ".md"
     assert ".." not in rendered.vault_path
     assert f'ins_id: "{ins_id}"' in rendered.content
     assert "## 反证与约束" in rendered.content
@@ -377,6 +377,16 @@ def test_renderer_has_fixed_path_frontmatter_and_content_hash(insight_case, tmp_
     path = insight_render.persist_artifact(rendered, str(tmp_path))
     assert os.path.basename(path) == f"{rendered.content_sha256}.md"
     assert insight_render.persist_artifact(rendered, str(tmp_path)) == path
+
+
+def test_planned_vault_path_uses_random_tail_not_timestamp():
+    """UUIDv7 shares its leading 12 hex across same-millisecond insights —
+    the path suffix must come from the random tail or batch siblings collide."""
+    id_a = "ins_" + "a" * 12 + "b" * 20
+    id_b = "ins_" + "a" * 12 + "c" * 20
+    path_a = insight_render.planned_vault_path(id_a, "2026-06")
+    path_b = insight_render.planned_vault_path(id_b, "2026-06")
+    assert path_a != path_b
 
 
 class FakeResponse:

@@ -363,7 +363,10 @@ def _check_quality(document, fact_pack, errors, warnings):
     if document.get("confidence") == "high" and len(cited_publishers) < 2:
         errors.append("high confidence requires two independent publishers")
     histories = [item.get("history", []) for item in fact_pack.get("evidence", [])]
-    text = "\n".join(item for _, item in _narrative_strings(document))
+    # Limitations are exempt: honestly stating "not enough data to identify
+    # a trend" is correct research conduct, not trend language.
+    text = "\n".join(t for key, t in _narrative_strings(document)
+                     if key != "limitations")
     if "趋势" in text and histories and max(map(len, histories)) < 3:
         errors.append("trend language requires at least three historical observations")
     if any(item.get("missing_metrics") for item in fact_pack.get("evidence", [])):

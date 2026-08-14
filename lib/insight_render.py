@@ -49,13 +49,16 @@ def planned_vault_path(ins_id, as_of):
     Derived only from the insight id and the fact-pack as_of period, so the
     same path is computable at collection time (row insert) and at render
     time — keeping planned_vault_path immutable without a fallback spool.
+    The suffix uses the id's random tail (last 12 hex): the leading 12 hex
+    of a UUIDv7 are the millisecond timestamp, so batch-created insights
+    would otherwise collide on one path and overwrite each other.
     """
     if not re.fullmatch(r"ins_[0-9a-f]{32}", ins_id):
         raise ValueError("invalid generated insight id")
     period = str(as_of or "")[:7]
     if not re.fullmatch(r"\d{4}-\d{2}", period):
         raise ValueError(f"as_of must be YYYY-MM, got {as_of!r}")
-    return f"洞察/{period[:4]}/{period}-{ins_id[4:12]}.md"
+    return f"洞察/{period[:4]}/{period}-{ins_id[-12:]}.md"
 
 
 def _source_lookup(fact_pack):
