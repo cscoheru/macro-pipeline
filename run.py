@@ -402,9 +402,16 @@ def process_cn_release(cfg, state, src_name):
         if m.get("yoy") is not None:
             store.upsert_observations(src_name, _yoy_key(key), [(period, m["yoy"])])
         # T2/G2: one content-addressed evidence record per cited metric.
-        evi_id = _record_evidence(src_name, f"{src_name}:{key}", m.get("value"),
+        # For yoy-only series (CPI/PPI yoy, some investment breakdowns) the
+        # parser returns no level value — the yoy reading IS the observation,
+        # and the unit ("% 同比") already says so. Recording null here would
+        # dead-end the validator's current_value == value gate.
+        evi_value = m.get("value")
+        if evi_value is None:
+            evi_value = m.get("yoy")
+        evi_id = _record_evidence(src_name, f"{src_name}:{key}", evi_value,
                                   m.get("unit") or "", period, snap_path, snap_sha,
-                                  included=[f"{key}={m.get('value')}"], url=url)
+                                  included=[f"{key}={evi_value}"], url=url)
         st = {"value": m.get("value"), "yoy_pct": m.get("yoy"),
               "mom_pct": None, "trend": "—", "date": period}
         updates.append({"id": key, "name": m["name"], "unit": m.get("unit") or "",

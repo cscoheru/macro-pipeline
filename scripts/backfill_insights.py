@@ -138,9 +138,10 @@ def _snapshot_for(source, period):
 
 
 def _evidence_exists(conn, metric_id, period, sha):
+    """Only a corrected (non-null value) row counts as already present."""
     return conn.execute(
         "SELECT 1 FROM evidence_snapshot WHERE metric_id=? AND observed_period=?"
-        " AND content_sha256=? LIMIT 1",
+        " AND content_sha256=? AND value IS NOT NULL LIMIT 1",
         (metric_id, period, sha),
     ).fetchone() is not None
 
@@ -184,25 +185,41 @@ def rebuild_evidence(conn, source):
         metric_id = key
         if _evidence_exists(conn, metric_id, period, meta["sha"]):
             continue
+        # yoy-only series: the yoy reading IS the observation (unit says so);
+        # a null value would dead-end the validator's current_value gate.
+        value = entry.get("value")
+        if value is None:
+            value = entry.get("yoy_pct")
         evi_id = ledger.create_evidence_snapshot(
             conn, source_url=meta["url"], publisher=PUBLISHERS.get(source),
             published_at=period, observed_period=period, metric_id=metric_id,
-            value=entry.get("value"), unit=entry.get("unit", ""),
+            value=value, unit=entry.get("unit", ""),
             content_sha256=meta["sha"], raw_path=meta["path"],
-            included=[f"{key}={entry.get('value') if entry.get('value') is not None else entry.get('yoy_pct')}"],
+            included=[f"{key}={value}"],
             missing=[],
         )
         created.append(evi_id)
     conn.commit()
-    # Include pre-existing evidence of this source+period (idempotent re-run).
+    # Include pre-existing evidence of this source+period (idempotent re-run),
+    # preferring corrected non-null rows when both exist for a metric.
     all_ids = [
         row[0] for row in conn.execute(
             "SELECT evi_id FROM evidence_snapshot WHERE metric_id LIKE ?"
-            " AND observed_period=? AND content_sha256=? ORDER BY metric_id",
+            " AND observed_period=? AND content_sha256=?"
+            " ORDER BY metric_id, value IS NULL, created_at",
             (f"{source}:%", period, meta["sha"]),
         ).fetchall()
     ]
-    return all_ids, None
+    seen_metrics, deduped = set(), []
+    for evi_id in all_ids:
+        metric = conn.execute(
+            "SELECT metric_id FROM evidence_snapshot WHERE evi_id=?",
+            (evi_id,),
+        ).fetchone()[0]
+        if metric not in seen_metrics:
+            seen_metrics.add(metric)
+            deduped.append(evi_id)
+    return deduped, None
 
 
 def _queue_legacy_insight(conn, source, evi_ids, flags, title):
