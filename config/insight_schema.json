@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MacroInsight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "headline",
+    "bottom_line",
+    "what_changed",
+    "mechanism_chain",
+    "supporting_evidence",
+    "counter_evidence",
+    "alternative_explanations",
+    "implications",
+    "next_checks",
+    "confidence",
+    "limitations",
+    "source_table"
+  ],
+  "properties": {
+    "headline": {"type": "string", "minLength": 8, "maxLength": 120},
+    "bottom_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "as_of"],
+      "properties": {
+        "text": {"type": "string", "minLength": 30, "maxLength": 800},
+        "as_of": {"type": "string", "minLength": 4, "maxLength": 32}
+      }
+    },
+    "what_changed": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "evidence_id", "current_value", "previous_value", "unit", "comparison"],
+        "properties": {
+          "statement": {"type": "string", "minLength": 8, "maxLength": 500},
+          "evidence_id": {"type": "string", "pattern": "^evi_"},
+          "current_value": {"type": ["number", "null"]},
+          "previous_value": {"type": ["number", "null"]},
+          "unit": {"type": "string", "maxLength": 40},
+          "comparison": {"type": "string", "minLength": 2, "maxLength": 300}
+        }
+      }
+    },
+    "mechanism_chain": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "statement", "supporting_ids"],
+        "properties": {
+          "kind": {"enum": ["observed", "derived", "inferred"]},
+          "statement": {"type": "string", "minLength": 8, "maxLength": 500},
+          "supporting_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "pattern": "^(evi|clm|fcst|rit)_"}
+          }
+        }
+      }
+    },
+    "supporting_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "finding"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^(evi|clm|fcst|rit)_"},
+          "finding": {"type": "string", "minLength": 8, "maxLength": 500}
+        }
+      }
+    },
+    "counter_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "finding"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^(evi|clm|fcst|rit)_"},
+          "finding": {"type": "string", "minLength": 8, "maxLength": 500}
+        }
+      }
+    },
+    "alternative_explanations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["explanation", "falsifier"],
+        "properties": {
+          "explanation": {"type": "string", "minLength": 8, "maxLength": 500},
+          "falsifier": {"type": "string", "minLength": 8, "maxLength": 500}
+        }
+      }
+    },
+    "implications": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["statement", "horizon"],
+        "properties": {
+          "statement": {"type": "string", "minLength": 8, "maxLength": 500},
+          "horizon": {"enum": ["near_term", "medium_term", "long_term"]}
+        }
+      }
+    },
+    "next_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "threshold", "direction", "target_period", "review_due_at", "source_id"],
+        "properties": {
+          "metric": {"type": "string", "minLength": 2, "maxLength": 120},
+          "threshold": {"type": ["number", "null"]},
+          "direction": {"enum": ["above", "below", "change", "release"]},
+          "target_period": {"type": "string", "minLength": 2, "maxLength": 32},
+          "review_due_at": {"type": "string", "minLength": 4, "maxLength": 32},
+          "source_id": {"type": "string", "pattern": "^(evi|clm|fcst|rit)_"}
+        }
+      }
+    },
+    "confidence": {"enum": ["high", "medium", "low"]},
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 8, "maxLength": 500}
+    },
+    "source_table": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "publisher", "period", "metric", "unit"],
+        "properties": {
+          "evidence_id": {"type": "string", "pattern": "^evi_"},
+          "publisher": {"type": "string", "minLength": 2, "maxLength": 120},
+          "period": {"type": "string", "minLength": 2, "maxLength": 32},
+          "metric": {"type": "string", "minLength": 2, "maxLength": 120},
+          "unit": {"type": "string", "maxLength": 40}
+        }
+      }
+    }
+  }
+}

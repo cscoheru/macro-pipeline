@@ -134,3 +134,13 @@ triggers:
     expr: {a: {source: cn_pbc, series: pbc_m2, field: yoy_pct}, op: minus, b: {source: cn_pbc, series: pbc_m1, field: yoy_pct}}
     compare: {op: gt, threshold: 3}
     note: "M2同比 − M1同比 > 3pp"
+
+# ============================================================
+# 自动洞察 feature flag（默认关闭）
+#   enabled: false      采集照常，但不生成/发布洞察文章（恢复旧简报行为）
+#   auto_publish: false 生成+验证通过后只停在 ready，不自动 PUT 到 vault（观察期推荐）
+# 上线步骤见 plans/eager-snacking-micali.md Phase E；密钥在 config/insight.env（600）
+# ============================================================
+insights:
+  enabled: false
+  auto_publish: false

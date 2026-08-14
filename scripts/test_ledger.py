@@ -57,13 +57,15 @@ def test_new_id_prefix_and_uniqueness():
 # ---------------------------------------------------------------------------
 
 def test_append_event_writes_all_fields(conn):
-    ledger.append_event(conn, "claim", "clm_x", "draft", "alice", "drafted",
-                        from_status=None, payload={"k": 1})
+    clm = ledger.create_claim(conn, statement="payload test")
+    ledger.append_event(conn, "claim", clm, "active", "alice", "reviewed",
+                        from_status="draft", payload={"k": 1})
     row = conn.execute(
         "SELECT entity_type, entity_id, from_status, to_status, actor, reason,"
-        " payload_sha256 FROM ledger_event WHERE entity_id='clm_x'").fetchone()
+        " payload_sha256 FROM ledger_event WHERE entity_id=?"
+        " ORDER BY occurred_at DESC, evt_id DESC LIMIT 1", (clm,)).fetchone()
     assert row[0] == "claim"
-    assert row[2] is None and row[3] == "draft"
+    assert row[2] == "draft" and row[3] == "active"
     assert row[4] == "alice"
     assert row[6] is not None   # payload hashed
 
@@ -74,7 +76,8 @@ def test_current_status_replay(conn):
         "INSERT INTO claim(clm_id, statement, initial_status, created_at)"
         " VALUES ('clm_a','s','draft','t')")
     assert ledger.current_status(conn, "claim", "clm_a") == "draft"
-    # two events -> newest wins
+    # establish the imported initial state, then append two transitions
+    ledger.append_event(conn, "claim", "clm_a", "draft", "u", "imported")
     ledger.append_event(conn, "claim", "clm_a", "active", "u", "r", from_status="draft")
     ledger.append_event(conn, "claim", "clm_a", "superseded", "u", "r", from_status="active")
     assert ledger.current_status(conn, "claim", "clm_a") == "superseded"
@@ -88,6 +91,55 @@ def test_transition_allowed_and_rejected(conn):
     # active->draft is not in the allowed set
     with pytest.raises(ValueError):
         ledger.transition(conn, "claim", clm, "draft", "u", "nope")
+
+
+def test_transition_rejects_unknown_and_broken_chain(conn):
+    with pytest.raises(ValueError, match="unknown claim entity"):
+        ledger.transition(conn, "claim", "clm_missing", "active", "u", "nope")
+
+    clm = ledger.create_claim(conn, statement="broken")
+    conn.execute("DROP TRIGGER noguard_upd_ledger_event")
+    conn.execute(
+        "UPDATE ledger_event SET from_status='wrong'"
+        " WHERE entity_type='claim' AND entity_id=?", (clm,))
+    with pytest.raises(ValueError, match="discontinuous"):
+        ledger.current_status(conn, "claim", clm)
+
+
+def test_generated_insight_lifecycle(conn):
+    rit = ledger.create_research_item(conn, queue_source="fred", title="update")
+    ins = ledger.create_generated_insight(
+        conn, research_item_id=rit, input_sha256=_sha64(), prompt_version="v1",
+        generator="test", model="test-model", planned_vault_path="洞察/test.md")
+    assert ledger.current_status(conn, "generated_insight", ins) == "queued"
+
+    with pytest.raises(ValueError, match="illegal"):
+        ledger.transition(conn, "generated_insight", ins, "published", "u", "skip")
+    ledger.transition(conn, "generated_insight", ins, "generating", "u", "start")
+    with pytest.raises(ValueError, match="without artifact"):
+        ledger.transition(conn, "generated_insight", ins, "ready", "u", "done")
+
+    ledger.create_insight_artifact(
+        conn, ins_id=ins, content_sha256="b" * 64, local_path="/tmp/test.md",
+        validation={"ok": True})
+    ledger.transition(conn, "generated_insight", ins, "ready", "u", "validated")
+    ledger.transition(conn, "generated_insight", ins, "published", "u", "verified")
+    ledger.transition(conn, "generated_insight", ins, "superseded", "u", "revision")
+    with pytest.raises(ValueError, match="illegal"):
+        ledger.transition(conn, "generated_insight", ins, "published", "u", "revive")
+
+
+def test_insight_provenance_fk_and_exactly_one_source(conn):
+    rit = ledger.create_research_item(conn, queue_source="fred", title="update")
+    ins = ledger.create_generated_insight(
+        conn, research_item_id=rit, input_sha256=_sha64(), prompt_version="v1",
+        generator="test", model="test-model", planned_vault_path="洞察/test.md")
+    with pytest.raises(sqlite3.IntegrityError):
+        ledger.create_insight_provenance(
+            conn, ins_id=ins, source_type="evidence_snapshot", source_id="evi_missing")
+    with pytest.raises(ValueError, match="unsupported"):
+        ledger.create_insight_provenance(
+            conn, ins_id=ins, source_type="video", source_id="youtube")
 
 
 # ---------------------------------------------------------------------------
@@ -150,23 +202,35 @@ def test_trigger_rejects_update_delete(conn):
     fid = ledger.create_forecast(conn, claim_id=clm, metric_id="m",
                                  target_period="t", decision_rule="r",
                                  review_due_at="d")
-    conn.execute(
-        "INSERT INTO review(rev_id, forecast_id, initial_status, created_at)"
-        " VALUES ('rev_1', ?, 'open', 't')", (fid,))
+    rev = ledger.create_review(conn, forecast_id=fid)
     imp = ledger.create_client_implication(conn, claim_id=clm)
     rit = ledger.create_research_item(conn, queue_source="q", title="t")
+    ins = ledger.create_generated_insight(
+        conn, research_item_id=rit, input_sha256=_sha64(), prompt_version="v1",
+        generator="test", model="test-model", planned_vault_path="洞察/test.md")
+    art = ledger.create_insight_artifact(
+        conn, ins_id=ins, content_sha256="b" * 64, local_path="/tmp/test.md",
+        validation={"ok": True})
+    prv = ledger.create_insight_provenance(
+        conn, ins_id=ins, source_type="evidence_snapshot", source_id=evi)
+    att = ledger.record_insight_attempt(
+        conn, ins_id=ins, stage="generate", outcome="success")
 
     cases = [
         ("evidence_snapshot", "evi_id", evi),
         ("claim", "clm_id", clm),
         ("forecast", "fcst_id", fid),
-        ("review", "rev_id", "rev_1"),
+        ("review", "rev_id", rev),
         ("client_implication", "imp_id", imp),
         ("research_item", "rit_id", rit),
+        ("generated_insight", "ins_id", ins),
+        ("insight_artifact", "art_id", art),
+        ("insight_provenance", "prv_id", prv),
+        ("insight_attempt", "att_id", att),
     ]
     for table, pk, val in cases:
         with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(f"UPDATE {table} SET created_at='x' WHERE {pk}=?", (val,))
+            conn.execute(f"UPDATE {table} SET {pk}={pk} WHERE {pk}=?", (val,))
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(f"DELETE FROM {table} WHERE {pk}=?", (val,))
     # ledger_event itself

@@ -11,6 +11,7 @@ Deep interpretation is left for Claude in the next session (待解读/ briefs).
 """
 import argparse
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -30,6 +31,10 @@ import vault_writer
 import notify
 import readings_cache
 import cn_parsers
+import insight_context
+import insight_provider
+import insight_render
+import insight_runner
 
 ECON_LABEL = {"us": "🇺🇸", "cn": "🇨🇳"}
 ECON_NAME = {"us": "美国", "cn": "中国"}
@@ -134,12 +139,15 @@ def _record_failure(source, series, error_class, detail, last_valid_evi=None):
 
 def _record_evidence(source, metric_id, value, unit, period, raw_path, sha,
                      included, url=None, publisher=None):
-    """Record a content-addressed evidence snapshot for a new observation (T2/G2)."""
+    """Record a content-addressed evidence snapshot for a new observation (T2/G2).
+
+    Returns the evi_id (or None on failure) so the insight queue can link it.
+    """
     conn = None
     try:
         conn = store._connect()
         with conn:
-            ledger.create_evidence_snapshot(
+            return ledger.create_evidence_snapshot(
                 conn, source_url=url, publisher=publisher,
                 published_at=period, observed_period=period, metric_id=metric_id,
                 value=value, unit=unit, content_sha256=sha, raw_path=raw_path,
@@ -147,6 +155,7 @@ def _record_evidence(source, metric_id, value, unit, period, raw_path, sha,
     except Exception:
         logging.warning("ledger.create_evidence_snapshot(%s/%s) failed:\n%s",
                         source, metric_id, traceback.format_exc())
+        return None
     finally:
         if conn:
             conn.close()
@@ -167,6 +176,139 @@ def _record_research_item(queue_source, title, source_event_id=None, priority="n
     finally:
         if conn:
             conn.close()
+
+
+# --- Insight queue helpers (acquisition-first: failures log + continue). ---
+# Queue-first: the fact pack is built, content-addressed, persisted, and a
+# 'queued' generated_insight row inserted in one transaction at collection
+# time. Generation + publish happen later in _drain_insights (which itself
+# never breaks collection). The whole subsystem is feature-flagged and
+# default-off; see lib/insight_runner.py and plans/eager-snacking-micali.md.
+
+def _insight_model_name():
+    """Model name for queue idempotency, without requiring the API key."""
+    try:
+        return insight_provider.load_config().model
+    except insight_provider.ConfigurationError:
+        return "claude-fable-5"
+
+
+def _insight_generator_name():
+    """Provider family actually configured in insight.env (for provenance)."""
+    try:
+        return insight_provider.load_config().provider
+    except insight_provider.ConfigurationError:
+        return "anthropic"
+
+
+def _persist_fact_pack(fact_pack, input_sha256):
+    """Content-addressed fact pack at INSIGHT_FACTS/<sha>.json (idempotent)."""
+    root = paths.INSIGHT_FACTS
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    target = os.path.join(root, f"{input_sha256}.json")
+    if os.path.exists(target):
+        return target
+    tmp = f"{target}.tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(insight_context.canonical_json(fact_pack))
+        handle.flush()
+        os.fsync(handle.fileno())
+    # Match persist_artifact/persist_response: the fact pack is pre-publication
+    # evidence, keep it 0600 like its siblings.
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, target)
+    return target
+
+
+def _queue_source_insight(src, updates, flags, cache, rit_id):
+    """Build + persist a fact pack and insert a queued generated_insight row.
+
+    One fact pack per source-release (mirrors write_queue_brief granularity).
+    Returns ins_id or None on any failure (acquisition-first).
+    """
+    evi_ids = [u.get("evi_id") for u in updates if u.get("evi_id")]
+    if not evi_ids or not rit_id:
+        return None
+    conn = None
+    try:
+        conn = store._connect()
+        fact_pack, input_sha = insight_context.build_fact_pack(
+            conn, research_item_id=rit_id, evidence_ids=evi_ids,
+            readings=cache, flags=flags,
+        )
+        _persist_fact_pack(fact_pack, input_sha)
+        prompt_version = insight_provider.load_prompt_and_schema()[2]
+        # A revision article supersedes the last published article built on
+        # evidence of the same metrics (None if none ever published).
+        supersedes = None
+        if any(u.get("revision") for u in updates):
+            metric_ids = [f"{u.get('source', src)}:{u['id']}" for u in updates]
+            supersedes = ledger.latest_published_for_metrics(conn, metric_ids)
+            if supersedes:
+                logging.info("revision insight will supersede %s", supersedes)
+        ins_id = ledger.new_id("generated_insight")
+        planned = insight_render.planned_vault_path(ins_id, fact_pack["as_of"])
+        with conn:
+            ledger.create_generated_insight(
+                conn, research_item_id=rit_id, input_sha256=input_sha,
+                prompt_version=prompt_version, generator=_insight_generator_name(),
+                model=_insight_model_name(), planned_vault_path=planned,
+                supersedes_id=supersedes,
+                ins_id=ins_id,
+            )
+            for index, evi_id in enumerate(evi_ids):
+                ledger.create_insight_provenance(
+                    conn, ins_id=ins_id, source_type="evidence_snapshot",
+                    source_id=evi_id, role="evidence", ordinal=index,
+                )
+        logging.info("queued insight %s for %s (as_of=%s, %d evidence)",
+                     ins_id, src, fact_pack["as_of"], len(evi_ids))
+        return ins_id
+    except Exception:
+        logging.warning("queue insight for %s failed:\n%s", src, traceback.format_exc())
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def _drain_insights(vw, max_insights=None, auto_publish=False):
+    """Generate queued insights and (optionally) publish ready ones.
+
+    Provider/Vault faults never break collection — tasks stay queued or ready
+    for a later run. Returns the drain summary dict (empty on config error).
+    """
+    try:
+        provider = insight_provider.build_provider()
+    except insight_provider.ConfigurationError as exc:
+        logging.warning("insight drain skipped (provider not configured): %s", exc)
+        return {}
+    conn = None
+    try:
+        conn = store._connect()
+        summary = insight_runner.drain(
+            conn, provider=provider, writer=vw, max_insights=max_insights,
+            auto_publish=auto_publish,
+        )
+        conn.commit()
+        return summary
+    except Exception:
+        logging.warning("insight drain failed:\n%s", traceback.format_exc())
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+
+def _notify_drain_summary(summary):
+    """Surface a drain summary as one notification line (skipped if empty)."""
+    if not summary:
+        return
+    labels = {"published": "已发布", "needs_review": "待审",
+              "requeued": "重试", "failed": "失败"}
+    parts = [f"{summary[k]}{labels[k]}" for k in labels if summary.get(k)]
+    if parts:
+        notify.notify("宏观洞察流水线", "；".join(parts))
 
 
 # ---------------------------------------------------------------------------
@@ -191,24 +333,32 @@ def process_fred(cfg, state):
             _record_failure("fred", sid, "empty_parse", "parse_fred_csv returned no rows")
             continue
         latest_period = rows[-1][0]
-        if not detector.is_new_period("fred", sid, latest_period, state):
+        # Revision detection: classify by (period, content hash) so an official
+        # revision of the same period re-records evidence instead of being
+        # silently skipped. Hash is computed from the raw CSV, identical to
+        # save_local_snapshot's content addressing.
+        content_sha = hashlib.sha256(csv_text.encode("utf-8")).hexdigest()
+        kind = detector.classify("fred", sid, latest_period, content_sha, state)
+        if kind == "same":
             logging.info("fred/%s no new data (latest=%s)", sid, latest_period)
             continue
         store.upsert_observations("fred", sid, rows)
         snap_path, snap_sha = save_local_snapshot("fred", sid, csv_text, latest_period)
         history = store.get_history("fred", sid, limit=30)
         st = stats_mod.compute_stats(history, display=s.get("display", "level"))
-        detector.mark_seen("fred", sid, latest_period, state)
+        detector.mark_seen("fred", sid, latest_period, state, content_sha256=snap_sha)
         # T2/G2: content-addressed evidence snapshot for this observation.
-        _record_evidence("fred", f"fred:{sid}", st["value"] if st else None,
-                         s.get("unit", ""), latest_period, snap_path, snap_sha,
-                         included=[f"{sid}={st['value']}" if st else sid],
-                         url=f"https://fred.stlouisfed.org/series/{sid}",
-                         publisher="FRED (St. Louis Fed)")
-        logging.info("fred/%s NEW period=%s value=%s", sid, latest_period,
+        evi_id = _record_evidence("fred", f"fred:{sid}", st["value"] if st else None,
+                                  s.get("unit", ""), latest_period, snap_path, snap_sha,
+                                  included=[f"{sid}={st['value']}" if st else sid],
+                                  url=f"https://fred.stlouisfed.org/series/{sid}",
+                                  publisher="FRED (St. Louis Fed)")
+        logging.info("fred/%s %s period=%s value=%s", sid,
+                     "REVISED" if kind == "revision" else "NEW", latest_period,
                      fmt(st["value"]) if st else "?")
         updates.append({"id": sid, "name": s["name"], "unit": s.get("unit", ""),
-                        "economy": econ, "source": "fred", "stats": st})
+                        "economy": econ, "source": "fred", "stats": st,
+                        "evi_id": evi_id, "revision": kind == "revision"})
     return updates, None
 
 
@@ -233,11 +383,16 @@ def process_cn_release(cfg, state, src_name):
         return [], f"{src_name} 解析失败（可能源站改版）: {e}"
 
     period = parsed["period"]
-    if not detector.is_new_period(src_name, "_period", period, state):
+    snapshot = f"period={period}\ntitle={title}\nurl={url}\n\n{text}"
+    # Revision detection: same period + changed page content (title/url/text
+    # all feed the hash) is an official revision, not a skip. Hash mirrors
+    # save_local_snapshot's content addressing, computed before any writes.
+    content_sha = hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
+    kind = detector.classify(src_name, "_period", period, content_sha, state)
+    if kind == "same":
         logging.info("%s no new period (latest=%s)", src_name, period)
         return [], None
 
-    snapshot = f"period={period}\ntitle={title}\nurl={url}\n\n{text}"
     snap_path, snap_sha = save_local_snapshot(src_name, "release", snapshot, period, ext="txt")
     economy = scfg.get("economy", "cn")
     updates = []
@@ -247,15 +402,17 @@ def process_cn_release(cfg, state, src_name):
         if m.get("yoy") is not None:
             store.upsert_observations(src_name, _yoy_key(key), [(period, m["yoy"])])
         # T2/G2: one content-addressed evidence record per cited metric.
-        _record_evidence(src_name, f"{src_name}:{key}", m.get("value"),
-                         m.get("unit") or "", period, snap_path, snap_sha,
-                         included=[f"{key}={m.get('value')}"], url=url)
+        evi_id = _record_evidence(src_name, f"{src_name}:{key}", m.get("value"),
+                                  m.get("unit") or "", period, snap_path, snap_sha,
+                                  included=[f"{key}={m.get('value')}"], url=url)
         st = {"value": m.get("value"), "yoy_pct": m.get("yoy"),
               "mom_pct": None, "trend": "—", "date": period}
         updates.append({"id": key, "name": m["name"], "unit": m.get("unit") or "",
-                        "economy": economy, "source": src_name, "stats": st})
-    detector.mark_seen(src_name, "_period", period, state)
-    logging.info("%s NEW period=%s metrics=%d (%s)", src_name, period, len(updates), title)
+                        "economy": economy, "source": src_name, "stats": st,
+                        "evi_id": evi_id, "revision": kind == "revision"})
+    detector.mark_seen(src_name, "_period", period, state, content_sha256=snap_sha)
+    logging.info("%s %s period=%s metrics=%d (%s)", src_name,
+                 "REVISED" if kind == "revision" else "NEW", period, len(updates), title)
     return updates, None
 
 
@@ -416,7 +573,7 @@ def write_queue_brief(vw, updates, flags, source_name):
         "---",
         f"# {source_name} 数据更新（{stamp}）",
         "",
-        f"本次检测到 **{len(updates)}** 项。请套用 [[01-研究方法-李厚辰]] 六步法 + 手册 F1-F7 框架写解读，完成后移入 `_done/`。",
+        f"本次检测到 **{len(updates)}** 项。请套用 [[01-研究方法-李厚辰]] 六步法 + 手册 F1-F7 框架写解读，完成后移入 `宏观经济/_pipeline/_done/`。",
         "",
         "## 新数据明细",
         "",
@@ -438,7 +595,7 @@ def write_queue_brief(vw, updates, flags, source_name):
     econ_link = "00-中国宏观体检" if econ == "cn" else "00-美国宏观体检"
     lines.append("## 建议")
     lines.append(f"- 关联 [[{econ_link}]] 与对应研究笔记；推进 [[研究手册]] 验证点看板")
-    lines.append("- 处理完将本文件移到 `_done/`")
+    lines.append("- 处理完将本文件移到 `宏观经济/_pipeline/_done/`")
     lines.append("")
     vw.put_pipeline(f"待解读/{stamp}-{source_name}.md", "\n".join(lines))
 
@@ -468,19 +625,48 @@ def write_cross_brief(vw, cross_flags):
     ]
     for f in cross_flags:
         lines.append(f"- {f}")
-    lines += ["", "建议：套用对应框架写综合解读，关联 [[00-中国宏观体检]] / [[00-美国宏观体检]] 与研究笔记。", ""]
+    lines += ["",
+              "建议：套用对应框架写综合解读，关联 [[00-中国宏观体检]] / [[00-美国宏观体检]] 与研究笔记。",
+              "处理完将本文件移到 `宏观经济/_pipeline/_done/`。",
+              ""]
     vw.put_pipeline(f"待解读/{stamp}-cross.md", "\n".join(lines))
+
+
+def ensure_done_archive(vw):
+    """Pre-create the _done/ archive as a sibling of 待解读/.
+
+    Obsidian drops empty folders, so a placeholder note keeps the archive
+    visible. Move target is 宏观经济/_pipeline/_done/ (option A: a system
+    folder, underscore-prefixed like _ledger/, parallel to 待解读/).
+    Idempotent — safe to call every run.
+    """
+    vw.put_pipeline("_done/_说明.md", "\n".join([
+        "---",
+        "类型: 数据流水线自动生成（脚本独占，请勿手改）",
+        "tags: [宏观, 数据, 自动]",
+        "---",
+        "",
+        "# 已解读归档（_done）",
+        "",
+        "`待解读/` 中的简报处理完成后，将文件移到本目录。",
+        "约定：本目录与 `待解读/` 平级，同在 `宏观经济/_pipeline/` 下。",
+        "",
+    ]))
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def run(sources_requested):
+def run(sources_requested, *, insights=None, no_generate=False,
+        insights_only=False, max_insights=None):
     setup_logging()
     cfg = load_config()
     state = detector.load_state()
-    logging.info("=== pipeline run start (sources=%s) ===", sources_requested)
+    insights_on = insights if insights is not None else cfg.get("insights", {}).get("enabled", False)
+    auto_publish = cfg.get("insights", {}).get("auto_publish", False)
+    logging.info("=== pipeline run start (sources=%s, insights=%s) ===",
+                 sources_requested, "on" if (insights_on or insights_only) else "off")
 
     targets = sources_requested or [k for k in cfg
                                     if k != "triggers" and isinstance(cfg[k], dict)
@@ -490,9 +676,20 @@ def run(sources_requested):
     except Exception as e:
         logging.error("vault writer init failed: %s — vault writes skipped", e)
         vw = None
+    if vw:
+        try:
+            ensure_done_archive(vw)
+        except Exception:
+            logging.warning("ensure_done_archive failed: %s", traceback.format_exc())
 
     cache = readings_cache.load()
     bootstrap_cache(cache, cfg)
+
+    if insights_only:
+        summary = _drain_insights(vw, max_insights=max_insights, auto_publish=auto_publish)
+        _notify_drain_summary(summary)
+        logging.info("=== insights-only drain done: %s ===", summary)
+        return
 
     total_updates = []
     run_keys = set()  # (source, series) updated this run — gates cross-trigger evaluation
@@ -511,9 +708,17 @@ def run(sources_requested):
             continue
         flags = evaluate_triggers(cfg.get("triggers", []), updates)
         logging.info("source %s: %d new, %d flags", src, len(updates), len(flags))
-        _record_research_item(
+        kind_label = "修订" if any(u.get("revision") for u in updates) else "新数据"
+        rit_id = _record_research_item(
             queue_source=src,
-            title=f"{src} 新数据 {len(updates)} 项（{', '.join(u['name'] for u in updates[:3])}）")
+            title=f"{src} {kind_label} {len(updates)} 项（{', '.join(u['name'] for u in updates[:3])}）")
+        if insights_on and rit_id:
+            # The fact pack's derived values read the cache; fold this source's
+            # just-collected readings in (they are only upserted below).
+            local_cache = dict(cache)
+            for u in updates:
+                local_cache[f"{u.get('source', src)}:{u['id']}"] = cache_entry_from_update(u)
+            _queue_source_insight(src, updates, flags, local_cache, rit_id)
         if vw:
             try:
                 write_queue_brief(vw, updates, flags, src)
@@ -555,19 +760,50 @@ def run(sources_requested):
     else:
         logging.info("=== run done: no new data ===")
 
+    if insights_on and not no_generate:
+        summary = _drain_insights(vw, max_insights=max_insights, auto_publish=auto_publish)
+        _notify_drain_summary(summary)
+        logging.info("insight drain: %s", summary)
+
 
 def main():
     ap = argparse.ArgumentParser(description="Macro data pipeline")
     ap.add_argument("--source", action="append", help="source to run (repeatable); default all enabled")
     ap.add_argument("--rebuild", action="store_true",
                     help="only rebuild 宏观经济/_pipeline/最新读数.md from cache, then exit (no fetch)")
+    ap.add_argument("--insights", action="store_true",
+                    help="enable insight queue+drain this run (overrides config insights.enabled)")
+    ap.add_argument("--insights-only", action="store_true",
+                    help="skip collection; only drain queued insights (implies --insights)")
+    ap.add_argument("--no-generate", action="store_true",
+                    help="collect data but skip insight generation/publish this run")
+    ap.add_argument("--max-insights", type=int, default=None,
+                    help="cap how many queued insights to generate this run")
+    ap.add_argument("--insights-status", action="store_true",
+                    help="print insight queue summary (queued/ready/published/...) and exit")
     args = ap.parse_args()
 
     setup_logging()
     cfg = load_config()
+    if args.insights_status:
+        conn = store._connect()
+        try:
+            s = insight_runner.summarize(conn)
+        finally:
+            conn.close()
+        print("洞察队列状态："
+              f"queued={s['queued']} generating={s['generating']} "
+              f"ready={s['ready']} needs_review={s['needs_review']} "
+              f"published={s['published']} superseded={s['superseded']}")
+        if s["oldest_queued_created_at"]:
+            print(f"最老积压：{s['oldest_queued_created_at']}")
+        if s["last_error_class"]:
+            print(f"最近错误类别：{s['last_error_class']}")
+        return
     if args.rebuild:
         try:
             vw = vault_writer.VaultWriter()
+            ensure_done_archive(vw)
             cache = readings_cache.load()
             bootstrap_cache(cache, cfg)
             readings_cache.save(cache)
@@ -576,7 +812,11 @@ def main():
         except Exception:
             logging.error("rebuild failed:\n%s", traceback.format_exc())
         return
-    run(args.source)
+    run(args.source,
+        insights=True if (args.insights or args.insights_only) else None,
+        no_generate=args.no_generate,
+        insights_only=args.insights_only,
+        max_insights=args.max_insights)
 
 
 if __name__ == "__main__":

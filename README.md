@@ -8,14 +8,23 @@ launchd 每日定时跑 `run.py` → 抓取一手源 → 变更检测 → SQLite
 统计 + 框架触发 → 经 **Obsidian REST API** 写入 vault 的 `宏观经济/_pipeline/`
 （机器独占命名空间，绕过 TCC）→ macOS 通知。深度解读留 Claude 下次会话读 `待解读/`。
 
+**可选的自动洞察生成**（feature flag，默认关闭）：采集后在同一 SQLite 事务里为每个
+源-发布建立 `queued` 的 GeneratedInsight，再由 runner 调用模型生成有结论/证据/反证/
+机制/影响/下一验证点的文章，硬验证通过后幂等发布到 `宏观经济/_pipeline/洞察/`；只有
+证据不足、相互矛盾、模型输出不合格或发布失败才进入 `待审/`。详见下文「自动洞察」。
+
 ## 目录
 ```
 config/sources.yaml   数据源注册表 + 框架触发规则
 config/rest.env       Obsidian REST token+port（600，勿提交）
+config/insight.env    洞察生成 ANTHROPIC_API_KEY/模型/超时（600，勿提交；见 insight.env.example）
+config/insight_prompt.md / insight_schema.json   版本化提示词与输出 schema
 lib/                  fetcher/detector/store/stats/vault_writer/notify/paths
-data/store.db         SQLite 时序库
+                      + insight_context/provider/validate/render/runner/publisher
+data/store.db         SQLite 时序库（含 append-only ledger 与 GeneratedInsight 状态机）
 data/snapshots/<src>/ 原始快照（抓数三件套的"快照"落地）
-data/state.json       每源每序列 last_seen（幂等关键）
+data/insights/        洞察内容寻址产物：facts/(事实包) artifacts/(Markdown) responses/
+data/state.json       每源每序列 last_seen + content_sha256（幂等 + 修订检测关键）
 logs/pipeline.log     运行日志
 run.py                主入口
 ```
@@ -30,6 +39,12 @@ python3 ~/macro-pipeline/run.py --source fred
 
 # 仅从 store 重建 vault 的"最新读数.md"（不抓取；代码改动/强制刷新用）
 python3 ~/macro-pipeline/run.py --rebuild
+
+# 自动洞察（默认关闭；需先配好 config/insight.env）
+python3 ~/macro-pipeline/run.py --source fred --insights --max-insights 1   # 采集+生成1篇
+python3 ~/macro-pipeline/run.py --insights-only                              # 只重试积压队列
+python3 ~/macro-pipeline/run.py --no-generate                                # 采集但不生成
+python3 ~/macro-pipeline/run.py --insights-status                            # 打印队列摘要后退出
 
 # launchd 管理
 launchctl list | grep macro                          # 查状态
@@ -58,9 +73,33 @@ tail -f ~/macro-pipeline/logs/pipeline.log           # 看日志
 每日 09:07 / 16:07 自动检测；新发布稿（新期次）才触发全流程（幂等）。
 
 ## 待办（后续 Phase）
-- Phase 3 续：统计局 CPI/PPI/PMI、央行 M2/社融、海关进出口（各一个 parser + 解析失败告警）
-- Phase 2：美方 BLS/BEA/FOMC + 跨序列触发规则（如中美背离、M2−CPI）
-- Phase 4：launchd 加固（失败重试/通知）+ Claude 侧「读 待解读 → 写解读 → 移 _done」流程（可做 SessionStart hook）
+- 自动洞察上线（plans/eager-snacking-micali.md Phase E）：mock provider 全链 E2E → 一个真实低风险 FRED 更新 `--insights-only` 二次幂等验证 → reload launchd；观察至少两个定时周期后再把 `insights.enabled` 切默认。
+- run.py 修订门控：把采集门从 `is_new_period` 升级为 `classify`（new/revision/same），同周期 hash 变化触发带 `supersedes_id` 的修订文章（detector 已就绪，待 insights 开启后再接线）。
+- 海关进出口：JSL WAF 仍未自主突破（MCP 浏览器可过），待低频重试 / 会话内取数 / 散文镜像。
+- FOMC 声明/异议票：federalreserve.gov 发现路径有 quirks（FFR 本身已由 FRED 覆盖）。
+
+## 自动洞察（可选，默认关闭）
+
+把默认产物从「数据转抄简报」升级为「可直接使用的洞察文章」。整体仍受 feature flag 控制
+（`config/sources.yaml` 的 `insights.enabled`，默认 `false`），未开启时流水线行为与之前完全一致。
+
+**数据流**：采集 → 同事务建 EvidenceSnapshot/ResearchItem/GeneratedInsight(`queued`) + provenance →
+runner 从内容寻址事实包生成结构化结果 → 本地 schema/事实门禁硬验证 → 渲染 Markdown artifact →
+幂等发布（PUT → GET 读回核验 sha256 → `published`）。生成成功 ≠ 发布成功。
+
+**状态机**：`queued → generating → ready | needs_review`；`ready → published → superseded`；
+可重试技术失败回 `queued`，内容不合格进 `needs_review`。所有新表禁止 UPDATE/DELETE（append-only）。
+
+**安全边界**：
+- API key 只从 `config/insight.env`（600）显式读取，不进 launchd plist/日志/ledger/prompt/artifact/vault。
+- 自动写入仅限 `宏观经济/_pipeline/`（洞察/、待审/、_done/）；模型不能控制 vault 路径或 SQL。
+- 模型只能引用事实包内 Evidence/Claim/Forecast ID；算术、口径、反证、确定性语言由 validator 硬控，失败不发布。
+- 采集优先（fail-open）：ledger/模型/Vault 失败都不中断数据采集；任务留在 `queued`/`ready` 等下次重试。
+
+**人工介入**：`待审/<ins_id>.md` 列出失败门禁与事实包摘要；用 `--insights-status` 看队列
+（queued/ready/needs_review/published 计数 + 最老积压 + 最近错误类别），用 `--insights-only` 重跑积压。
+
+**回滚**：把 `insights.enabled` 设回 `false` 即恢复只产出原始简报；旧 `write_queue_brief()` 在观察期保留。
 
 ## 前置依赖
 - Python 3.14 + pandas/requests/beautifulsoup4/lxml/PyYAML

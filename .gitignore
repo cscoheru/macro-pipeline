@@ -24,3 +24,5 @@ config/*.env
 *.swp
 .idea/
 .vscode/
+.gstack/
+backups/

@@ -1,7 +1,7 @@
 """SQLite time-series store. One row per (source, series, observation date)."""
 import sqlite3
 import paths
-import ledger
+import migrations
 
 
 def _connect():
@@ -19,26 +19,33 @@ def _connect():
             PRIMARY KEY (source, series, date)
         )"""
     )
-    # Co-locate the append-only judgement ledger alongside observations.
-    # Idempotent: only builds the 7 ledger tables + triggers when absent.
-    if conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ledger_event'"
-    ).fetchone() is None:
-        ledger.init_schema(conn)
+    migrations.ensure_schema(conn)
     return conn
 
 
-def upsert_observations(source: str, series: str, rows) -> int:
-    """Upsert (date, value) pairs for a source/series. rows: iterable of (date, float)."""
-    conn = _connect()
-    n = 0
-    with conn:
-        n = conn.executemany(
-            "INSERT OR REPLACE INTO observations(source, series, date, value) VALUES (?, ?, ?, ?)",
-            [(source, series, d, v) for d, v in rows],
-        ).rowcount
-    conn.close()
-    return n
+def upsert_observations(source: str, series: str, rows, conn=None) -> int:
+    """Upsert rows, optionally participating in the caller's transaction."""
+    own_conn = conn is None
+    conn = conn or _connect()
+    values = [(source, series, d, v) for d, v in rows]
+    try:
+        if own_conn:
+            with conn:
+                n = conn.executemany(
+                    "INSERT OR REPLACE INTO observations(source, series, date, value)"
+                    " VALUES (?, ?, ?, ?)",
+                    values,
+                ).rowcount
+        else:
+            n = conn.executemany(
+                "INSERT OR REPLACE INTO observations(source, series, date, value)"
+                " VALUES (?, ?, ?, ?)",
+                values,
+            ).rowcount
+        return n
+    finally:
+        if own_conn:
+            conn.close()
 
 
 def get_history(source: str, series: str, limit: int = 30):
