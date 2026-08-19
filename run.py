@@ -396,9 +396,15 @@ def process_cn_release(cfg, state, src_name):
     listing_url = scfg["listing_url"]
     # Optional: resolve a year aggregator (BOJ state_all/) to its newest year
     # folder (state_2026/) so we never hardcode the current year in config.
+    # resolver raises RuntimeError on layout change — caught below as a
+    # discover_error so the source records failure rather than crashing.
     if scfg.get("year_index"):
-        listing_url = fetcher.resolve_year_index(
-            listing_url, href_regex=scfg.get("year_index_href_regex"))
+        try:
+            listing_url = fetcher.resolve_year_index(
+                listing_url, href_regex=scfg.get("year_index_href_regex"))
+        except Exception as e:
+            _record_failure(src_name, "_period", "discover_error", str(e))
+            return [], f"{src_name} 年份索引解析失败: {e}"
     try:
         if scfg.get("hops"):
             # Multi-hop discovery (e.g. CAO GDP: top → quarter menu → data PDF)

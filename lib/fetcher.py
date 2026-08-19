@@ -223,19 +223,25 @@ def discover_latest_release_chained(listing_url: str, hops):
 # Pattern for "year-of-decisions" index pages, e.g. BOJ's state_2026/. Used
 # by resolve_year_index to redirect from a stable aggregator (state_all) to
 # the newest annual folder without hardcoding the year.
-_YEAR_INDEX_RE = re.compile(r"state[_-]?(20\d{2})/?$", re.I)
+# Not end-anchored: BOJ hrefs are "/en/mopo/mpmdeci/state_2026/index.htm"
+# so `state_2026/` lives mid-path. The href_regex filter (passed in from
+# sources.yaml) narrows to the right subtree.
+_YEAR_INDEX_RE = re.compile(r"state[_-](20\d{2})", re.I)
 
 
 def resolve_year_index(aggregator_url: str, href_regex: str = None) -> str:
     """Given a stable "list-of-years" URL, return the URL of the newest year
     subfolder. Used for BOJ MPM (state_all/ → state_2026/, state_2025/, ...).
 
-    Returns `aggregator_url` unchanged when no year folder matches, so the
-    caller's existing parsing path is preserved on layout change."""
+    Raises RuntimeError when no year folder matches — silent fallback would
+    hide BOJ layout changes (the whole point of year_index is to detect
+    Jan-1 staleness, so a missing year folder is exactly what we want to
+    surface, not paper over)."""
     try:
         html = fetch_html(aggregator_url)
-    except Exception:
-        return aggregator_url
+    except Exception as e:
+        raise RuntimeError(
+            f"failed to fetch year-aggregator {aggregator_url}: {e}") from e
     soup = BeautifulSoup(html, "lxml")
     years = []
     for a in soup.find_all("a", href=True):
@@ -247,7 +253,9 @@ def resolve_year_index(aggregator_url: str, href_regex: str = None) -> str:
             continue
         years.append((int(m.group(1)), urljoin(aggregator_url, href)))
     if not years:
-        return aggregator_url
+        raise RuntimeError(
+            f"no year folder found in {aggregator_url} "
+            f"(href_regex={href_regex!r}); layout may have changed")
     years.sort(key=lambda pair: pair[0], reverse=True)
     return years[0][1]
 

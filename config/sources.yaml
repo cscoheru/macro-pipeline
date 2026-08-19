@@ -92,7 +92,9 @@ jp_ppi:
   title_regex: '\[\s*PDF'
   href_regex: 'cgpi\d{4}\.pdf'
   parser: parse_jp_ppi
-  metric_keys: [cgpi_yoy, cgpi_mom]
+  # BOJ CGPI PDF 只在 prose 中给出 MoM（"Producer Price Index rose 0.1 percent"）；
+  # YoY 落在数据表里需要 tabular 解析，超出当前解析范围。保留 cgpi_mom 作为发布口径。
+  metric_keys: [cgpi_mom]
 
 jp_policy:
   economy: jp
@@ -102,6 +104,7 @@ jp_policy:
   # so the current year is never hardcoded (would otherwise silently stale in Jan).
   listing_url: "https://www.boj.or.jp/en/mopo/mpmdeci/state_all/index.htm"
   year_index: true
+  year_index_href_regex: 'state_\d{4}/index\.htm'
   title_regex: 'Statement on Monetary Policy'
   href_regex: 'mpr_\d{4}/k\d{6}a\.pdf'   # 只挑利率决议 PDF（kYYMMDDa.pdf），跳过 outlook/opinion
   parser: parse_jp_policy
