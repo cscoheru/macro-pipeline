@@ -76,6 +76,15 @@ def _safe_source_url(value):
 
 def _frontmatter(document, fact_pack, ins_id, input_sha256, prompt_version, generated_at):
     research = fact_pack["research_item"]
+    # Derive economy + metric_keys from evidence[*].metric_id
+    # (format: "<source>:<series>"; cn/jp/de prefix → economy, fred → us).
+    # Lets Dataview filter/group insights by economy and indicator without
+    # requiring a separate metadata store.
+    metric_ids = sorted({item["metric_id"] for item in fact_pack.get("evidence", [])
+                        if item.get("metric_id")})
+    economies = sorted({_economy_for(mid.split(":", 1)[0])
+                        for mid in metric_ids if ":" in mid})
+    metric_keys = sorted({mid.split(":", 1)[1] for mid in metric_ids if ":" in mid})
     return [
         "---",
         "type: generated_macro_insight",
@@ -84,12 +93,22 @@ def _frontmatter(document, fact_pack, ins_id, input_sha256, prompt_version, gene
         f"generated_at: {_yaml(generated_at)}",
         f"as_of: {_yaml(fact_pack['as_of'])}",
         f"confidence: {_yaml(document['confidence'])}",
+        f"economy: [{', '.join(economies) if economies else 'unknown'}]",
+        f"metric_keys: [{', '.join(metric_keys) if metric_keys else 'unknown'}]",
         f"input_sha256: {_yaml(input_sha256)}",
         f"prompt_version: {_yaml(prompt_version)}",
         "tags: [宏观, 洞察, 自动生成]",
         "machine_owned: true",
         "---",
     ]
+
+
+def _economy_for(source):
+    """Map evidence source prefix to economy code for Dataview filtering."""
+    if not source:
+        return "unknown"
+    head = source.split("_", 1)[0]
+    return {"fred": "us"}.get(head, head)
 
 
 def _render_changed(document):

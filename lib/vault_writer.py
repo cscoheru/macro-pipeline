@@ -58,6 +58,23 @@ class VaultWriter:
         r.raise_for_status()
         return r.status_code
 
+    def put_binary(self, vault_path: str, content: bytes,
+                   content_type="image/png") -> int:
+        """Upload binary content (PNG charts, images). Same endpoint as put();
+        Obsidian REST infers the file type from the extension and serves the
+        raw bytes. No size check — caller is responsible for keeping uploads
+        under any practical vault limit.
+        """
+        r = requests.put(
+            self._url(vault_path),
+            headers={**self._headers(), "Content-Type": content_type},
+            data=content,
+            verify=False,
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.status_code
+
     # --- pipeline-namespace helpers (all under 宏观经济/_pipeline/) ---
     def put_pipeline(self, rel_path: str, content: str) -> int:
         return self.put(f"{paths.VAULT_PIPELINE_PREFIX}/{rel_path}", content)
