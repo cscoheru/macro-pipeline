@@ -78,6 +78,120 @@ cn_pbc:
 
 # cn_customs (海关进出口) — 延期：customs.gov.cn 被 WAF 锁死(412)，需 browse daemon 或付费镜像
 
+# ============================================================
+# 日本 (Phase 4) — BOJ / Statistics Bureau / Cabinet Office
+# BOJ CGPI + MPM、CAO GDP 月度发布稿均为 PDF；cn_release 流程已扩展
+# （fetcher.discover_pdf + pdf_to_text 自动接 .pdf URL）
+# ============================================================
+jp_ppi:
+  economy: jp
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.boj.or.jp/en/statistics/pi/cgpi_release/index.htm"
+  # BOJ 链接文本形如 "[PDF 218KB]" 完全一样；用 href 锚定最新月度发布 cgpiYYMM.pdf
+  title_regex: '\[\s*PDF'
+  href_regex: 'cgpi\d{4}\.pdf'
+  parser: parse_jp_ppi
+  metric_keys: [cgpi_yoy, cgpi_mom]
+
+jp_policy:
+  economy: jp
+  enabled: true
+  type: cn_release
+  # Stable aggregator; fetcher.resolve_year_index redirects to state_YYYY/
+  # so the current year is never hardcoded (would otherwise silently stale in Jan).
+  listing_url: "https://www.boj.or.jp/en/mopo/mpmdeci/state_all/index.htm"
+  year_index: true
+  title_regex: 'Statement on Monetary Policy'
+  href_regex: 'mpr_\d{4}/k\d{6}a\.pdf'   # 只挑利率决议 PDF（kYYMMDDa.pdf），跳过 outlook/opinion
+  parser: parse_jp_policy
+  metric_keys: [policy_rate]
+
+jp_cpi:
+  economy: jp
+  enabled: false   # 延期：e-Stat 英文版无月度发布稿 HTML（仅有说明页 + Japanese-only 原始页）。
+                   # 若需要，可后续接 OECD.stat API（Japan CPI/CORE）替代
+  type: cn_release
+  listing_url: "https://www.stat.go.jp/english/data/cpi/"
+  title_regex: 'Monthly Report'
+  parser: parse_jp_cpi
+  metric_keys: [cpi_yoy, cpi_core_yoy]
+
+jp_unrate:
+  economy: jp
+  enabled: false   # 延期：同上（e-Stat Labour Force Survey 月度发布稿仅 Japanese）
+  type: cn_release
+  listing_url: "https://www.stat.go.jp/english/data/roudou/"
+  title_regex: 'Labour Force Survey'
+  parser: parse_jp_unrate
+  metric_keys: [unrate]
+
+jp_gdp:
+  economy: jp
+  enabled: true
+  type: cn_release
+  # 三跳链: sokuhou_top(固定) → gdemenue{quarter}(每季换) → main_1e.pdf(固定路径,每季覆盖)
+  # hops 元素为 [title_regex, href_regex]
+  listing_url: "https://www.esri.cao.go.jp/en/sna/sokuhou/sokuhou_top.html"
+  hops:
+    - ['Time series table', 'gdemenuea\.html']
+    - ['GDP \(Expenditure Approach\)', 'main_1e\.pdf']
+  parser: parse_jp_gdp
+  metric_keys: [gdp_qoq, gdp_yoy]
+
+# ============================================================
+# 德国 (Phase 5) — Destatis 英文 Press releases
+# Pressesuche 是稳定入口，按 topic code 区分（611=CPI/811=GDP/132=Labour/61281=PPI）
+# 最新 4 条 release 已验证 URL 形如 EN/Press/2026/08/PE26_283_611.html
+# ============================================================
+de_cpi:
+  economy: de
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.destatis.de/SiteGlobals/Forms/Suche/Presse/EN/Pressesuche_Formular.html"
+  href_base: "https://www.destatis.de/"   # Pressesuche hrefs "EN/Press/..." want site-root join
+  # Destatis press 标题形如 "Inflation rate at +2.8% in July 2026"
+  title_regex: 'Inflation rate'
+  href_regex: 'PE26_\d+_611\.html'
+  parser: parse_de_cpi
+  metric_keys: [cpi_yoy, cpi_mom]
+
+de_ppi:
+  economy: de
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.destatis.de/SiteGlobals/Forms/Suche/Presse/EN/Pressesuche_Formular.html"
+  href_base: "https://www.destatis.de/"
+  # Erzeugerpreise → "Wholesale prices in July 2026: +5.3%"
+  title_regex: 'Wholesale prices'
+  href_regex: 'PE26_\d+_61281\.html'
+  parser: parse_de_ppi
+  metric_keys: [ppi_yoy, ppi_mom]
+
+de_unrate:
+  economy: de
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.destatis.de/SiteGlobals/Forms/Suche/Presse/EN/Pressesuche_Formular.html"
+  href_base: "https://www.destatis.de/"
+  # Employment → "Employment in June 2026 down on the previous month"
+  title_regex: 'Employment'
+  href_regex: 'PE26_\d+_132\.html'
+  parser: parse_de_unrate
+  metric_keys: [employment_yoy]
+
+de_gdp:
+  economy: de
+  enabled: true
+  type: cn_release
+  listing_url: "https://www.destatis.de/SiteGlobals/Forms/Suche/Presse/EN/Pressesuche_Formular.html"
+  href_base: "https://www.destatis.de/"
+  # GDP → "Gross domestic product in the 2nd quarter of 2026 up 0.2%"
+  title_regex: 'Gross domestic product'
+  href_regex: 'PE26_\d+_811\.html'
+  parser: parse_de_gdp
+  metric_keys: [gdp_qoq, gdp_yoy]
+
 # 后续 Phase 3 扩展：
 #   cn_stats_cpi  (统计局 CPI/PPI)
 #   cn_stats_pmi  (统计局 PMI)
@@ -134,13 +248,53 @@ triggers:
     expr: {a: {source: cn_pbc, series: pbc_m2, field: yoy_pct}, op: minus, b: {source: cn_pbc, series: pbc_m1, field: yoy_pct}}
     compare: {op: gt, threshold: 3}
     note: "M2同比 − M1同比 > 3pp"
+  # --- 日本 (Phase 4) ---
+  - id: jp_cpi_target
+    flag: "JP 物价偏离 BOJ 2% 目标"
+    metric: {source: jp_cpi, series: cpi_core_yoy, field: yoy_pct}
+    op: range
+    threshold: [0.5, 2.5]
+    invert: true   # outside range = hit
+    note: "核心CPI同比 落在 [0.5, 2.5] 之外（BOJ 2% 目标窗口偏离）"
+  - id: jp_unrate_jump
+    flag: "JP 劳动市场恶化（完全失業率）"
+    metric: {source: jp_unrate, series: unrate, field: value}
+    op: gt
+    threshold: 2.8
+    note: "完全失業率 > 2.8%（历史均值附近）"
+  - id: jp_policy_exit
+    flag: "JP 货币政策正常化推进（BOJ 利率非零）"
+    metric: {source: jp_policy, series: policy_rate, field: value}
+    op: gt
+    threshold: 0
+    note: "无担保隔夜拆借利率目标 > 0%（YCC 退出后）"
+  # --- 德国 (Phase 5) ---
+  - id: de_cpi_target
+    flag: "DE 物价偏离 ECB 2% 目标"
+    metric: {source: de_cpi, series: cpi_yoy, field: yoy_pct}
+    op: range
+    threshold: [0.5, 2.5]
+    invert: true
+    note: "CPI同比 落在 [0.5, 2.5] 之外（ECB 2% 目标窗口偏离）"
+  - id: de_unrate_jump
+    flag: "DE 劳动市场恶化（就业人数同比下行）"
+    metric: {source: de_unrate, series: employment_yoy, field: yoy_pct}
+    op: lt
+    threshold: 0
+    note: "就业人数同比变化 < 0"
+  - id: de_gdp_qoq_neg
+    flag: "DE 经济活动萎缩"
+    metric: {source: de_gdp, series: gdp_qoq, field: yoy_pct}
+    op: lt
+    threshold: 0
+    note: "实际 GDP 环比 < 0%（未经季调折年率修正，与发布稿原值口径）"
 
 # ============================================================
-# 自动洞察 feature flag（默认关闭）
+# 自动洞察 feature flag
 #   enabled: false      采集照常，但不生成/发布洞察文章（恢复旧简报行为）
-#   auto_publish: false 生成+验证通过后只停在 ready，不自动 PUT 到 vault（观察期推荐）
+#   auto_publish: true  验证通过后自动 PUT 到 vault 洞察/；不达标的仍进待审/，人工判断
 # 上线步骤见 plans/eager-snacking-micali.md Phase E；密钥在 config/insight.env（600）
 # ============================================================
 insights:
-  enabled: false
-  auto_publish: false
+  enabled: true
+  auto_publish: true

@@ -55,10 +55,14 @@ def planned_vault_path(ins_id, as_of):
     """
     if not re.fullmatch(r"ins_[0-9a-f]{32}", ins_id):
         raise ValueError("invalid generated insight id")
-    period = str(as_of or "")[:7]
-    if not re.fullmatch(r"\d{4}-\d{2}", period):
-        raise ValueError(f"as_of must be YYYY-MM, got {as_of!r}")
-    return f"洞察/{period[:4]}/{period}-{ins_id[-12:]}.md"
+    period = str(as_of or "")
+    if re.fullmatch(r"\d{4}-\d{2}", period):
+        # Monthly: 洞察/YYYY/YYYY-MM-insXXXX.md
+        return f"洞察/{period[:4]}/{period}-{ins_id[-12:]}.md"
+    if re.fullmatch(r"\d{4}-q[1-4]", period):
+        # Quarterly: same year dir, period slug includes 'q'
+        return f"洞察/{period[:4]}/{period}-{ins_id[-12:]}.md"
+    raise ValueError(f"as_of must be YYYY-MM or YYYY-qN, got {as_of!r}")
 
 
 def _source_lookup(fact_pack):

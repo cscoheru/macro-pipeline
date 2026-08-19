@@ -31,21 +31,37 @@ import vault_writer
 import notify
 import readings_cache
 import cn_parsers
+import jp_parsers  # noqa: F401  -- registered into INT_PARSERS below
+import de_parsers  # noqa: F401  -- registered into INT_PARSERS below
 import insight_context
 import insight_provider
 import insight_render
 import insight_runner
 
-ECON_LABEL = {"us": "🇺🇸", "cn": "🇨🇳"}
-ECON_NAME = {"us": "美国", "cn": "中国"}
+ECON_LABEL = {"us": "🇺🇸", "cn": "🇨🇳", "jp": "🇯🇵", "de": "🇩🇪"}
+ECON_NAME = {"us": "美国", "cn": "中国", "jp": "日本", "de": "德国"}
 
-CN_PARSERS = {
+# International parsers (cn + jp + de). The cn_release flow in
+# process_cn_release is intentionally generic; the name persists for backwards
+# compat with existing source configs.
+INT_PARSERS = {
     "parse_mof_fiscal": cn_parsers.parse_mof_fiscal,
     "parse_stats_investment": cn_parsers.parse_stats_investment,
     "parse_stats_cpi": cn_parsers.parse_stats_cpi,
     "parse_stats_ppi": cn_parsers.parse_stats_ppi,
     "parse_stats_pmi": cn_parsers.parse_stats_pmi,
     "parse_pbc_financial": cn_parsers.parse_pbc_financial,
+    # Japan (BOJ / Statistics Bureau / Cabinet Office)
+    "parse_jp_cpi": jp_parsers.parse_jp_cpi,
+    "parse_jp_ppi": jp_parsers.parse_jp_ppi,
+    "parse_jp_unrate": jp_parsers.parse_jp_unrate,
+    "parse_jp_gdp": jp_parsers.parse_jp_gdp,
+    "parse_jp_policy": jp_parsers.parse_jp_policy,
+    # Germany (Destatis English press releases)
+    "parse_de_cpi": de_parsers.parse_de_cpi,
+    "parse_de_ppi": de_parsers.parse_de_ppi,
+    "parse_de_unrate": de_parsers.parse_de_unrate,
+    "parse_de_gdp": de_parsers.parse_de_gdp,
 }
 
 
@@ -362,25 +378,69 @@ def process_fred(cfg, state):
     return updates, None
 
 
+def _fetch_release_text(url):
+    """Fetch the body of a release page. If the URL points at a PDF (BOJ CGPI /
+    MPM, Cabinet Office GDP), extract via pdftotext; otherwise strip HTML."""
+    if fetcher.discover_pdf(url):
+        return fetcher.pdf_to_text(fetcher.fetch_pdf(url))
+    return fetcher.strip_tags(fetcher.fetch_html(url))
+
+
 def process_cn_release(cfg, state, src_name):
-    """Generic China-HTML processor: discover -> parse -> store. Returns (updates, error)."""
+    """Generic HTML-or-PDF release processor: discover -> fetch -> parse -> store.
+    Handles both CN HTML releases and JP/DE PDF releases via the same flow;
+    dispatch is by URL suffix at fetch time.
+
+    Returns (updates, error)."""
     scfg = cfg[src_name]
+    listing_url = scfg["listing_url"]
+    # Optional: resolve a year aggregator (BOJ state_all/) to its newest year
+    # folder (state_2026/) so we never hardcode the current year in config.
+    if scfg.get("year_index"):
+        listing_url = fetcher.resolve_year_index(
+            listing_url, href_regex=scfg.get("year_index_href_regex"))
     try:
-        title, url = fetcher.discover_latest_release(scfg["listing_url"], scfg["title_regex"])
+        if scfg.get("hops"):
+            # Multi-hop discovery (e.g. CAO GDP: top → quarter menu → data PDF)
+            title, url = fetcher.discover_latest_release_chained(
+                listing_url, scfg["hops"])
+        else:
+            title, url = fetcher.discover_latest_release(
+                listing_url, scfg["title_regex"],
+                href_regex=scfg.get("href_regex"),
+                follow_href_regex=scfg.get("follow_href_regex"),
+                href_base=scfg.get("href_base"),
+            )
+        # Tripwire (not gate): warn if the discovered URL looks stale. Detects
+        # year-pinned listings (state_2026/) that didn't roll over on Jan 1.
+        fetcher.freshness_check(url)
     except Exception as e:
         _record_failure(src_name, "_period", "discover_error", str(e))
         return [], f"{src_name} 发现最新发布稿失败: {e}"
     if not url:
         _record_failure(src_name, "_period", "discover_nomatch",
-                        f"listing未匹配 regex={scfg['title_regex']}")
-        return [], f"{src_name} 列表未匹配到发布稿（regex={scfg['title_regex']}）"
+                        f"listing未匹配 regex={scfg.get('title_regex') or scfg.get('hops')}")
+        return [], f"{src_name} 列表未匹配到发布稿（regex={scfg.get('title_regex') or scfg.get('hops')}）"
     try:
-        text = fetcher.strip_tags(fetcher.fetch_html(url))
-        parsed = CN_PARSERS[scfg["parser"]](title, text)
+        text = _fetch_release_text(url)
+        parsed = INT_PARSERS[scfg["parser"]](title, text, url) \
+            if scfg["parser"].startswith(("parse_jp_", "parse_de_")) \
+            else INT_PARSERS[scfg["parser"]](title, text)
     except Exception as e:
         logging.warning("%s parse failed:\n%s", src_name, traceback.format_exc())
         _record_failure(src_name, "_period", "parse_error", f"{e}（可能源站改版）")
         return [], f"{src_name} 解析失败（可能源站改版）: {e}"
+
+    # Completeness gate: when the config declares expected metric_keys, refuse
+    # to publish a partial parse. Without this, a layout shift would quietly
+    # drop one of (cpi_yoy, cpi_mom) yet still mark the release as seen, so
+    # the next run would skip the page entirely and no alert would fire.
+    expected = set(scfg.get("metric_keys") or [])
+    missing = expected - set(parsed["metrics"])
+    if missing:
+        msg = f"parser returned {sorted(parsed['metrics'])}; expected {sorted(expected)}; missing={sorted(missing)}"
+        _record_failure(src_name, "_period", "parse_incomplete", msg)
+        return [], f"{src_name} 解析不完整（{msg}）"
 
     period = parsed["period"]
     snapshot = f"period={period}\ntitle={title}\nurl={url}\n\n{text}"
@@ -488,7 +548,12 @@ def evaluate_triggers(triggers, updates):
         if val is None:
             continue
         thr, op = t["threshold"], t.get("op", "gt")
-        hit = {"gt": val > thr, "lt": val < thr, "eq": val == thr}.get(op, False)
+        if op == "range":
+            lo, hi = thr[0], thr[1]
+            inside = lo <= val <= hi
+            hit = (not inside) if t.get("invert") else inside
+        else:
+            hit = {"gt": val > thr, "lt": val < thr, "eq": val == thr}.get(op, False)
         if hit:
             flags.append(f"**{t['flag']}** — {t.get('note', '')}（{m['field']}={val:.2f}）")
     return flags
@@ -675,8 +740,12 @@ def run(sources_requested, *, insights=None, no_generate=False,
     logging.info("=== pipeline run start (sources=%s, insights=%s) ===",
                  sources_requested, "on" if (insights_on or insights_only) else "off")
 
+    # Non-source config sections (trigger rules, insight feature flags) must
+    # not become run targets even when they carry enabled: true.
+    _NON_SOURCE_KEYS = ("triggers", "insights")
     targets = sources_requested or [k for k in cfg
-                                    if k != "triggers" and isinstance(cfg[k], dict)
+                                    if k not in _NON_SOURCE_KEYS
+                                    and isinstance(cfg[k], dict)
                                     and cfg[k].get("enabled", True)]
     try:
         vw = vault_writer.VaultWriter()

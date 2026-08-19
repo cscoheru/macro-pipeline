@@ -15,6 +15,13 @@ OFFICIAL_SOURCES = {
     "cn_stats_inv": "国家统计局",
     "cn_stats_pmi": "国家统计局",
     "cn_stats_ppi": "国家统计局",
+    "jp_policy": "日本銀行 (Bank of Japan)",
+    "jp_ppi": "日本銀行 (Bank of Japan)",
+    "jp_gdp": "内閣府 経済社会総合研究所 (Cabinet Office ESRI)",
+    "de_cpi": "Statistisches Bundesamt (Destatis)",
+    "de_ppi": "Statistisches Bundesamt (Destatis)",
+    "de_unrate": "Statistisches Bundesamt (Destatis)",
+    "de_gdp": "Statistisches Bundesamt (Destatis)",
 }
 
 FRAMEWORKS = {

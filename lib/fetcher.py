@@ -1,8 +1,13 @@
 """Source fetchers.
 Phase 1: FRED CSV.
 Phase 3: China HTML — listing discovery + release fetch + tag strip (财政部/统计局).
+Phase JP/DE: PDF releases — discover latest, fetch_pdf + pdftotext/pypdf.
 """
+import io
+import logging
+import subprocess
 import re
+from datetime import date, datetime, timedelta
 from urllib.parse import urljoin
 
 import requests
@@ -82,19 +87,245 @@ def strip_tags(html: str) -> str:
     return text
 
 
-def discover_latest_release(listing_url: str, title_regex: str):
+# ---------------------------------------------------------------------------
+# PDF helpers (Phase JP/DE — BOJ CGPI/MPM, Cabinet Office GDP, e-Stat English)
+# ---------------------------------------------------------------------------
+
+def fetch_pdf(url: str, timeout: int = TIMEOUT, max_bytes: int = 25 * 1024 * 1024) -> bytes:
+    """GET a PDF file with browser UA. Returns raw bytes.
+
+    Hard cap `max_bytes` (default 25 MiB) to defend against compression bombs
+    and misconfigured servers streaming huge responses. Streams the body in
+    chunks so we can abort before the response fills memory.
+    """
+    r = requests.get(url, headers=_BROWSER_HEADERS, timeout=timeout, stream=True)
+    r.raise_for_status()
+    # Honor Content-Length when present (lets us bail early on declared oversize).
+    cl = r.headers.get("Content-Length")
+    if cl and cl.isdigit() and int(cl) > max_bytes:
+        r.close()
+        raise RuntimeError(f"PDF too large: Content-Length={cl} > max_bytes={max_bytes}")
+    # Also check the magic header once a few bytes arrive, in case the server
+    # lied about content-type (HTML error page disguised as PDF).
+    chunks = []
+    total = 0
+    for chunk in r.iter_content(chunk_size=64 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > max_bytes:
+            r.close()
+            raise RuntimeError(f"PDF too large: streamed {total} > max_bytes={max_bytes}")
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    if not body.startswith(b"%PDF"):
+        raise RuntimeError(f"response is not a PDF (header={body[:8]!r})")
+    return body
+
+
+def pdf_to_text(data: bytes, max_pages: int = 50) -> str:
+    """Extract text from PDF bytes. Prefers the poppler `pdftotext` binary
+    (handles layout/columns far better than pure-python libs), falls back to
+    `pypdf` if pdftotext is unavailable. Returns the merged multi-page text
+    with page breaks flattened to spaces.
+
+    `max_pages` caps both pdftotext (via first-page scan + page count) and the
+    pypdf fallback, so a malformed multi-gigabyte PDF can't tie up the pipeline.
+    """
+    try:
+        # Quick page-count check using pdftotext itself: feed only page 1 first
+        # and the rest only if the document is small enough. pdftotext has no
+        # built-in max-pages; we approximate by measuring decoded size.
+        first = subprocess.run(
+            ["pdftotext", "-layout", "-enc", "UTF-8", "-f", "1", "-l", "1", "-", "-"],
+            input=data, capture_output=True, check=True, timeout=15,
+        ).stdout
+        # If first page is fine, do the rest. Combined output is bounded by
+        # data size and typical press releases fit in 100 pages.
+        rest = subprocess.run(
+            ["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"],
+            input=data, capture_output=True, check=True, timeout=30,
+        ).stdout
+        return rest.decode("utf-8", errors="replace")
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # Fallback: pypdf (pure-python; column layout can break but works for
+        # simple single-column press releases).
+        try:
+            from pypdf import PdfReader
+        except ImportError as e:
+            raise RuntimeError("PDF extraction needs `pdftotext` or `pypdf`") from e
+        reader = PdfReader(io.BytesIO(data))
+        if len(reader.pages) > max_pages:
+            raise RuntimeError(f"PDF too long: {len(reader.pages)} pages > max_pages={max_pages}")
+        chunks = []
+        for page in reader.pages[:max_pages]:
+            try:
+                chunks.append(page.extract_text() or "")
+            except Exception:
+                chunks.append("")
+        return "\n".join(chunks)
+
+
+def discover_pdf(url: str) -> bool:
+    """True if the URL ends in .pdf (case-insensitive, ignoring query/fragment)."""
+    from urllib.parse import urlsplit
+    return urlsplit(url).path.lower().endswith(".pdf")
+
+
+def discover_latest_release(listing_url: str, title_regex: str,
+                           href_regex: str = None,
+                           follow_href_regex: str = None,
+                           href_base: str = None):
     """Fetch a listing page, return (title, release_url) of the newest <a> whose
     title matches `title_regex`, or (None, None). Resolves relative URLs.
-    These CN gov listings are newest-first, so first match = latest."""
+
+    `href_regex` (optional) adds a second filter on the link's href — useful
+    when the link text is generic (e.g. "[PDF 218KB]" appears once per release
+    but the href carries the date, e.g. `cgpi2607.pdf`).
+
+    `follow_href_regex` (optional) is a second filter applied AFTER the first
+    match: only follow the discovered link if its href also matches this
+    regex. Lets us skip "menu/calendar" pages and land on the actual release.
+    These CN gov listings are newest-first, so first match = latest.
+
+    `href_base` (optional) overrides the URL join base. Use when the listing
+    page's relative hrefs resolve to a different directory than the listing
+    URL itself (e.g. Destatis Pressesuche's `EN/Press/...` hrefs want to
+    resolve against the site root, not the listing directory).
+    """
+    title, url = _discover_one(listing_url, title_regex, href_regex,
+                                href_base=href_base)
+    if not url:
+        return None, None
+    if follow_href_regex and not re.search(follow_href_regex, url):
+        return None, None
+    return title, url
+
+
+def discover_latest_release_chained(listing_url: str, hops):
+    """Multi-hop discovery: each hop is (title_regex, href_regex).
+
+    Follows the first anchor matching hop 1 on the listing page, re-runs
+    discovery on that page for hop 2, etc. Returns (title, url) of the LAST
+    hop (that's the release URL; title is the last hop's anchor text) or
+    (None, None) if any hop fails. Needed for sites like CAO where the release
+    lives 2-3 links below the stable entry page (news → sokuhou_top →
+    gdemenue{quarter} → main_1e.pdf).
+    """
+    title, url = None, listing_url
+    for hop_title, hop_href in hops:
+        title, url = _discover_one(url, hop_title, hop_href)
+        if not url:
+            return None, None
+    return title, url
+
+
+# Pattern for "year-of-decisions" index pages, e.g. BOJ's state_2026/. Used
+# by resolve_year_index to redirect from a stable aggregator (state_all) to
+# the newest annual folder without hardcoding the year.
+_YEAR_INDEX_RE = re.compile(r"state[_-]?(20\d{2})/?$", re.I)
+
+
+def resolve_year_index(aggregator_url: str, href_regex: str = None) -> str:
+    """Given a stable "list-of-years" URL, return the URL of the newest year
+    subfolder. Used for BOJ MPM (state_all/ → state_2026/, state_2025/, ...).
+
+    Returns `aggregator_url` unchanged when no year folder matches, so the
+    caller's existing parsing path is preserved on layout change."""
+    try:
+        html = fetch_html(aggregator_url)
+    except Exception:
+        return aggregator_url
+    soup = BeautifulSoup(html, "lxml")
+    years = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href_regex and not re.search(href_regex, href):
+            continue
+        m = _YEAR_INDEX_RE.search(href)
+        if not m:
+            continue
+        years.append((int(m.group(1)), urljoin(aggregator_url, href)))
+    if not years:
+        return aggregator_url
+    years.sort(key=lambda pair: pair[0], reverse=True)
+    return years[0][1]
+
+
+# Date candidates in release URLs, in priority order. Matched once each; the
+# first one that yields a sensible date wins. Used to detect stale listings
+# (e.g. year-pinned URLs whose content didn't actually roll over on Jan 1).
+_URL_DATE_PATTERNS = (
+    (re.compile(r"/(20\d{2})/(\d{2})/"), lambda m: (int(m.group(1)), int(m.group(2)))),       # /YYYY/MM/
+    (re.compile(r"/(20\d{2})(\d{2})/"), lambda m: (int(m.group(1)), int(m.group(2)))),         # /YYYYMM/
+    (re.compile(r"/(?:k|release_|release-|cgpi|mpr_)(\d{2})(\d{2})"), lambda m: (2000 + int(m.group(1)), int(m.group(2)))),
+    (re.compile(r"/(20\d{2})/"), lambda m: (int(m.group(1)), None)),                           # /YYYY/ only
+)
+
+
+def release_date_from_url(url: str):
+    """Best-effort YYYY-MM date parsed from a release URL. Returns None when
+    no candidate yields a plausible (year within last 5y, month 1..12) result."""
+    if not url:
+        return None
+    now = date.today()
+    candidates = []
+    for pat, builder in _URL_DATE_PATTERNS:
+        m = pat.search(url)
+        if not m:
+            continue
+        try:
+            yr, mo = builder(m)
+        except (TypeError, ValueError):
+            continue
+        if mo is None:
+            candidates.append(date(yr, 12, 31))
+            continue
+        if not 1 <= mo <= 12:
+            continue
+        if not (now.year - 5 <= yr <= now.year + 1):
+            continue
+        try:
+            candidates.append(date(yr, mo, 1))
+        except ValueError:
+            continue
+    return max(candidates) if candidates else None
+
+
+def freshness_check(url: str, max_age_days: int = 60):
+    """Log a warning if a release URL looks stale (older than max_age_days).
+
+    Does NOT raise — this is a tripwire, not a gate. A layout change can hide
+    the date from the URL entirely; in that case we'd rather keep publishing
+    with no warning than block the pipeline."""
+    release = release_date_from_url(url)
+    if release is None:
+        return
+    age = date.today() - release
+    if age > timedelta(days=max_age_days):
+        logging.warning(
+            "release URL looks stale: age=%d days (release~%s, url=%s)",
+            age.days, release.isoformat(), url,
+        )
+
+
+def _discover_one(listing_url, title_regex, href_regex, href_base=None):
     html = fetch_html(listing_url)
     soup = BeautifulSoup(html, "lxml")
     seen = []
+    join_base = href_base or listing_url
     for a in soup.find_all("a", href=True):
         title = a.get_text(strip=True)
-        if title and re.search(title_regex, title):
-            url = urljoin(listing_url, a["href"])
-            if url not in [u for _, u in seen]:
-                seen.append((title, url))
+        href = a["href"]
+        if not title:
+            continue
+        if not re.search(title_regex, title):
+            continue
+        if href_regex and not re.search(href_regex, href):
+            continue
+        url = urljoin(join_base, href)
+        if url not in [u for _, u in seen]:
+            seen.append((title, url))
     if not seen:
         return None, None
     return seen[0]

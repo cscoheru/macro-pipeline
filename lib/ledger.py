@@ -13,6 +13,7 @@ See docs/plans/phase1-judgement-ledger.md (S2 architecture, S2a hardening).
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -91,6 +92,13 @@ CREATE TABLE IF NOT EXISTS evidence_snapshot (
   initial_status TEXT NOT NULL DEFAULT 'created',
   created_at TEXT NOT NULL
 );
+-- Idempotent uniqueness: same metric + period + content-hash is one evidence
+-- row. Created as a separate index (not a UNIQUE constraint) so it applies
+-- to existing DBs without a destructive migration. Concurrent collectors that
+-- race past the SELECT-before-INSERT will fail with IntegrityError; callers
+-- in run._record_evidence already log+continue so the winner is kept.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_evidence_metric_period_sha
+  ON evidence_snapshot(metric_id, observed_period, content_sha256);
 CREATE TABLE IF NOT EXISTS claim (
   clm_id TEXT PRIMARY KEY,
   as_of_time TEXT, statement TEXT NOT NULL, scope TEXT, mechanism TEXT,
@@ -445,18 +453,42 @@ def create_evidence_snapshot(conn, *, source_url, published_at, observed_period,
                              included=None, missing=None, publisher=None,
                              retrieved_at=None, methodology_version=None,
                              actor="system", reason="snapshot acquired"):
+    # Upsert-by-content: if a row with the same (metric_id, observed_period,
+    # content_sha256) exists, return its evi_id rather than racing the insert.
+    # Avoids duplicate evidence rows when the pipeline runs twice in the same
+    # content-hash window (e.g. concurrent collectors or a manual rerun).
+    existing = conn.execute(
+        "SELECT evi_id FROM evidence_snapshot"
+        " WHERE metric_id=? AND observed_period=? AND content_sha256=?",
+        (metric_id, observed_period, content_sha256),
+    ).fetchone()
+    if existing:
+        return existing[0]
     eid = new_id("evidence_snapshot")
-    conn.execute(
-        "INSERT INTO evidence_snapshot"
-        "(evi_id, source_url, publisher, published_at, retrieved_at, observed_period,"
-        " metric_id, value, unit, methodology_version, content_sha256, raw_path,"
-        " included_metrics, missing_metrics, initial_status, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (eid, source_url, publisher, published_at, retrieved_at, observed_period,
-         metric_id, value, unit, methodology_version, content_sha256, raw_path,
-         json.dumps(included or [], ensure_ascii=False),
-         json.dumps(missing or [], ensure_ascii=False),
-         "created", _now()))
+    try:
+        conn.execute(
+            "INSERT INTO evidence_snapshot"
+            "(evi_id, source_url, publisher, published_at, retrieved_at, observed_period,"
+            " metric_id, value, unit, methodology_version, content_sha256, raw_path,"
+            " included_metrics, missing_metrics, initial_status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (eid, source_url, publisher, published_at, retrieved_at, observed_period,
+             metric_id, value, unit, methodology_version, content_sha256, raw_path,
+             json.dumps(included or [], ensure_ascii=False),
+             json.dumps(missing or [], ensure_ascii=False),
+             "created", _now()))
+    except sqlite3.IntegrityError:
+        # Race: another writer committed a row with the same unique key between
+        # our SELECT and INSERT. Return whichever row now exists.
+        row = conn.execute(
+            "SELECT evi_id FROM evidence_snapshot"
+            " WHERE metric_id=? AND observed_period=? AND content_sha256=?",
+            (metric_id, observed_period, content_sha256),
+        ).fetchone()
+        if row:
+            return row[0]
+        # Constraint was on a different field — re-raise so the bug surfaces.
+        raise
     append_event(conn, "evidence_snapshot", eid, "created", actor, reason)
     return eid
 
@@ -554,14 +586,28 @@ def create_generated_insight(conn, *, research_item_id, input_sha256,
     if existing:
         return existing[0]
     eid = ins_id or new_id("generated_insight")
-    conn.execute(
-        "INSERT INTO generated_insight"
-        "(ins_id, research_item_id, input_sha256, prompt_version, generator,"
-        " model, supersedes_id, planned_vault_path, initial_status, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (eid, research_item_id, input_sha256, prompt_version, generator, model,
-         supersedes_id, planned_vault_path, "queued", _now()),
-    )
+    try:
+        conn.execute(
+            "INSERT INTO generated_insight"
+            "(ins_id, research_item_id, input_sha256, prompt_version, generator,"
+            " model, supersedes_id, planned_vault_path, initial_status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (eid, research_item_id, input_sha256, prompt_version, generator, model,
+             supersedes_id, planned_vault_path, "queued", _now()),
+        )
+    except sqlite3.IntegrityError:
+        # Race: a concurrent caller inserted the same (sha, prompt, model) tuple
+        # between our SELECT and INSERT. Return whichever row now exists.
+        row = conn.execute(
+            "SELECT ins_id FROM generated_insight"
+            " WHERE input_sha256=? AND prompt_version=? AND model=?",
+            (input_sha256, prompt_version, model),
+        ).fetchone()
+        if row:
+            return row[0]
+        # Constraint was on a different field (e.g. PRIMARY KEY collision on a
+        # caller-supplied ins_id) — re-raise so the bug surfaces.
+        raise
     append_event(conn, "generated_insight", eid, "queued", actor, reason)
     return eid
 
