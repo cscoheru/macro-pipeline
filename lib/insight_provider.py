@@ -1,14 +1,18 @@
 """Structured macro insight generation via a pluggable LLM provider.
 
-Two backends, selected by INSIGHT_PROVIDER in config/insight.env:
+Three backends, selected by INSIGHT_PROVIDER in config/insight.env:
   * "anthropic" (default) — Anthropic Messages API with json_schema output.
   * "deepseek"            — OpenAI-compatible /chat/completions (DeepSeek) with
                             json_object output.
+  * "minimax"             — OpenAI-compatible /chat/completions (MiniMax) with
+                            json_object output. Recommended fallback when the
+                            other two are rate-limited or key-unavailable.
 
-Both return a parsed dict; the hard validator (insight_validate) is API-agnostic,
-so DeepSeek's weaker server-side JSON enforcement is harmless — any schema or
-fact deviation lands in needs_review. Secrets are read only from config/insight.env
-(mode 600) and never logged, echoed, or persisted in the ledger/artifact/vault.
+All three return a parsed dict; the hard validator (insight_validate) is
+API-agnostic, so DeepSeek/MiniMax's weaker server-side JSON enforcement is
+harmless — any schema or fact deviation lands in needs_review. Secrets are
+read only from config/insight.env (mode 600) and never logged, echoed, or
+persisted in the ledger/artifact/vault.
 """
 import hashlib
 import json
@@ -112,6 +116,24 @@ def load_config(env_path=None, environ=None):
             model=values.get("INSIGHT_MODEL", "deepseek-chat"),
             **common,
         )
+    if provider == "minimax":
+        # MiniMax is OpenAI-compatible (/chat/completions + response_format
+        # json_object). Default endpoint/model are best-guess for the
+        # anthropic-mirror style; override via insight.env if the platform
+        # exposes a different base or model name.
+        api_key = values.get("MINIMAX_API_KEY", "").strip()
+        if not api_key:
+            raise ConfigurationError(
+                "MINIMAX_API_KEY is not configured", error_class="missing_api_key"
+            )
+        return ProviderConfig(
+            provider="minimax",
+            api_key=api_key,
+            base_url=values.get("MINIMAX_BASE_URL",
+                                "https://api.minimaxi.com/v1").rstrip("/"),
+            model=values.get("INSIGHT_MODEL", "MiniMax-Text-01"),
+            **common,
+        )
     api_key = values.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise ConfigurationError(
@@ -140,6 +162,8 @@ def build_provider(config=None, *, post=None, sleep=None):
     cfg = config or load_config()
     if cfg.provider == "deepseek":
         return DeepSeekInsightProvider(cfg, post=post, sleep=sleep)
+    if cfg.provider == "minimax":
+        return MiniMaxInsightProvider(cfg, post=post, sleep=sleep)
     return AnthropicInsightProvider(cfg, post=post, sleep=sleep)
 
 
@@ -353,6 +377,56 @@ class AnthropicInsightProvider:
 
 class DeepSeekInsightProvider:
     """OpenAI-compatible provider (DeepSeek). Returns parsed JSON via json_object mode."""
+
+    def __init__(self, config, *, post=None, sleep=None):
+        self.config = config
+        self._post = post or requests.post
+        self._sleep = sleep or time.sleep
+
+    def _payload(self, fact_pack, prompt, schema):
+        system = (
+            f"{prompt}\n\n"
+            "只输出一个 JSON 对象，不要任何解释、Markdown 或代码围栏。"
+            f"JSON 必须严格匹配此 json schema：\n"
+            f"{json.dumps(schema, ensure_ascii=False)}"
+        )
+        return {
+            "model": self.config.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": _fact_pack_text(fact_pack, self.config)},
+            ],
+            "response_format": {"type": "json_object"},
+            "max_tokens": self.config.max_tokens,
+            "stream": False,
+        }
+
+    def generate(self, fact_pack, *, prompt=None, schema=None):
+        if prompt is None or schema is None:
+            loaded_prompt, loaded_schema, _ = load_prompt_and_schema()
+            prompt = prompt or loaded_prompt
+            schema = schema or loaded_schema
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "content-type": "application/json",
+        }
+        body = _request_with_retry(
+            f"{self.config.base_url}/chat/completions", headers,
+            self._payload(fact_pack, prompt, schema),
+            self.config, self._post, self._sleep,
+        )
+        return _extract_openai_json(body)
+
+
+class MiniMaxInsightProvider:
+    """OpenAI-compatible provider (MiniMax). Returns parsed JSON via json_object mode.
+
+    Recommended fallback when Anthropic/DeepSeek are rate-limited or key-unavailable.
+    Behaviorally identical to DeepSeekInsightProvider — same payload shape, same
+    retry/salvage path. Kept as a separate class so we can tune model-specific
+    defaults (e.g. system-prompt prefix, response_format quirks) without
+    contaminating DeepSeek's path.
+    """
 
     def __init__(self, config, *, post=None, sleep=None):
         self.config = config

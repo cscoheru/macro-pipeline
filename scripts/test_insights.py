@@ -564,6 +564,34 @@ def test_load_config_selects_deepseek_and_requires_its_key(tmp_path):
         insight_provider.load_config(str(env_file), environ={})
 
 
+def test_load_config_selects_minimax_and_requires_its_key(tmp_path):
+    env_file = tmp_path / "insight.env"
+    env_file.write_text(
+        "INSIGHT_PROVIDER=minimax\nMINIMAX_API_KEY=mk-test\n"
+        "MINIMAX_BASE_URL=https://api.minimaxi.com/v1\nINSIGHT_MODEL=MiniMax-Text-01\n",
+        encoding="utf-8",
+    )
+    os.chmod(env_file, 0o600)
+    cfg = insight_provider.load_config(str(env_file), environ={})
+    assert cfg.provider == "minimax"
+    assert cfg.api_key == "mk-test"
+    assert cfg.base_url == "https://api.minimaxi.com/v1"
+    assert cfg.model == "MiniMax-Text-01"
+
+    env_file.write_text("INSIGHT_PROVIDER=minimax\n", encoding="utf-8")
+    os.chmod(env_file, 0o600)
+    with pytest.raises(insight_provider.ConfigurationError, match="MINIMAX_API_KEY"):
+        insight_provider.load_config(str(env_file), environ={})
+
+
+def test_build_provider_factory_selects_minimax():
+    cfg = insight_provider.ProviderConfig(
+        provider="minimax", api_key="mk-test", max_retries=0,
+    )
+    p = insight_provider.build_provider(cfg)
+    assert isinstance(p, insight_provider.MiniMaxInsightProvider)
+
+
 # ---------------------------------------------------------------------------
 # Publisher
 # ---------------------------------------------------------------------------
