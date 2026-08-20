@@ -171,9 +171,14 @@ def _plot_time_series(ax, slug, title, series_map):
     ax.set_ylabel("%")
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=8, loc="best")
-    # Compact x-axis: ≤ 8 ticks regardless of history length
-    if len(ax.get_xticklabels()) > 8:
-        ax.locator_params(axis="x", nbins=8)
+    # Compact x-axis: ≤ 8 ticks regardless of history length. Categorical
+    # string dates can't use nbins (matplotlib throws a warning); pick every
+    # Nth tick label instead.
+    labels = ax.get_xticklabels()
+    if len(labels) > 8:
+        step = max(1, len(labels) // 8)
+        for index, label in enumerate(labels):
+            label.set_visible(index % step == 0)
     return True
 
 
@@ -246,9 +251,8 @@ def render(output_dir):
 
 def _upload(paths_to_upload):
     # Defer import so the script still works without REST config.
-    from vault_writer import ObsidianRestClient, load_rest_config
-    cfg = load_rest_config()
-    client = ObsidianRestClient(cfg)
+    from vault_writer import VaultWriter
+    client = VaultWriter()
     target_prefix = f"{paths.VAULT_PIPELINE_PREFIX}/_charts"
     uploaded = []
     for local in paths_to_upload:
