@@ -282,3 +282,47 @@ class TestVaultPathComposition(unittest.TestCase):
             houchen_publish_paths.vault_path_for("video", "abc", "")
         with self.assertRaises(ValueError):
             houchen_publish_paths.vault_path_for("video", "abc", "../escape/")
+
+
+class TestObsidianLocalRestWriter(unittest.TestCase):
+    def test_put_get_round_trip(self):
+        import unittest.mock as mock
+
+        writer = houchen_publisher.ObsidianLocalRestWriter(
+            base_url="https://127.0.0.1:27124",
+            api_token="test-token",
+            timeout=5.0,
+        )
+        with mock.patch("requests.put") as put_mock, \
+                mock.patch("requests.get") as get_mock:
+            put_resp = mock.Mock()
+            put_resp.raise_for_status = mock.Mock()
+            put_mock.return_value = put_resp
+            get_resp = mock.Mock()
+            get_resp.status_code = 200
+            get_resp.text = "hello vault"
+            get_resp.raise_for_status = mock.Mock()
+            get_mock.return_value = get_resp
+
+            writer.put_pipeline("Research/世界苦茶/video/x.md", "hello vault")
+            text = writer.get_pipeline("Research/世界苦茶/video/x.md")
+
+        self.assertEqual(text, "hello vault")
+        put_mock.assert_called_once()
+        get_mock.assert_called_once()
+        put_url = put_mock.call_args[0][0]
+        self.assertIn("/vault/", put_url)
+        self.assertIn("Research", put_url)
+
+    def test_get_returns_none_on_404(self):
+        import unittest.mock as mock
+
+        writer = houchen_publisher.ObsidianLocalRestWriter(
+            base_url="https://127.0.0.1:27124",
+            api_token="test-token",
+        )
+        with mock.patch("requests.get") as get_mock:
+            get_resp = mock.Mock()
+            get_resp.status_code = 404
+            get_mock.return_value = get_resp
+            self.assertIsNone(writer.get_pipeline("missing.md"))

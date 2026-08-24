@@ -82,6 +82,36 @@ def obsidian_index_path() -> str:
     return os.path.join(publish_root(), "obsidian_index.json")
 
 
+def load_publish_config() -> dict:
+    """Parse `config/houchen_publish.env` (KEY=VALUE, # comments).
+
+    Required keys: `HOUCHEN_PUBLISH_BASE_URL`, `HOUCHEN_PUBLISH_API_TOKEN`.
+    Optional: `HOUCHEN_PUBLISH_VAULT_PREFIX`, `HOUCHEN_PUBLISH_TIMEOUT`.
+
+    Raises `FileNotFoundError` if the env file is missing; raises
+    `ValueError` if required keys are absent.
+    """
+    path = env_path()
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"publish env missing: {path} — copy "
+            "config/houchen_publish.env.example and fill token/base URL")
+    cfg: dict[str, str] = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            cfg[key.strip()] = value.strip()
+    required = ("HOUCHEN_PUBLISH_BASE_URL", "HOUCHEN_PUBLISH_API_TOKEN")
+    missing = [k for k in required if not cfg.get(k)]
+    if missing:
+        raise ValueError(
+            f"publish env missing keys: {', '.join(missing)}")
+    return cfg
+
+
 def env_path() -> str:
     """Absolute path to `config/houchen_publish.env` (mode 0600).
 

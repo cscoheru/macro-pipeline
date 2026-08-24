@@ -657,8 +657,20 @@ def cmd_publish(args):
         vault_prefix = args.vault_prefix or \
             houchen_publish_paths.DEFAULT_VAULT_PREFIX
 
-        # The CLI uses DryRunVaultWriter; tests inject FakeVaultWriter.
-        vault_writer = houchen_publisher.DryRunVaultWriter()
+        if args.apply and args.operator_authorized:
+            try:
+                cfg = houchen_publish_paths.load_publish_config()
+                if not args.vault_prefix and cfg.get("HOUCHEN_PUBLISH_VAULT_PREFIX"):
+                    vault_prefix = cfg["HOUCHEN_PUBLISH_VAULT_PREFIX"]
+                vault_writer = houchen_publisher.obsidian_writer_from_env()
+            except FileNotFoundError as e:
+                print(str(e), file=sys.stderr)
+                return EXIT_USAGE
+            except ValueError as e:
+                print(f"publish env invalid: {e}", file=sys.stderr)
+                return EXIT_USAGE
+        else:
+            vault_writer = houchen_publisher.DryRunVaultWriter()
 
         summary = houchen_runner.run_publish(
             conn,

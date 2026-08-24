@@ -725,9 +725,7 @@ def test_cli_pr3_offline_full_chain_materializes_all_rows(scratch_root):
                            capture_output=True, text=True, env=env)
         assert r.returncode == 0, (cmd, r.stdout, r.stderr)
 
-    # Explicit real provider remains disabled in PR-3 v1. `--no-pending`
-    # deliberately reselects the normalized video, proving CLI → runner →
-    # analyzer returns analyze_failed instead of making a network request.
+    # Real provider without houchen_analyze.env → analyze_failed (no network).
     r = subprocess.run(
         [sys.executable, SCRIPT, "--data-root", scratch_root,
          "analyze", "--no-pending", "--provider", "anthropic"],

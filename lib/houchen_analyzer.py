@@ -58,6 +58,29 @@ def _redact(text: str) -> str:
     return text
 
 
+def _call_real_provider(input_payload: dict, *, provider: str,
+                        model: str) -> dict:
+    """Invoke anthropic / deepseek / minimax via houchen_analyze.env."""
+    import houchen_analyze_env
+    import insight_provider
+
+    cfg = houchen_analyze_env.load_provider_config(provider)
+    if model:
+        cfg = insight_provider.ProviderConfig(
+            provider=cfg.provider,
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            model=model,
+            timeout_seconds=cfg.timeout_seconds,
+            max_tokens=cfg.max_tokens,
+            max_retries=cfg.max_retries,
+            max_input_chars=cfg.max_input_chars,
+        )
+    prompt, schema, _ = houchen_prompt.load_analysis_prompt_and_schema()
+    client = insight_provider.build_provider(cfg)
+    return client.generate(input_payload, prompt=prompt, schema=schema)
+
+
 def build_input_payload(*, video_id: str, transcript_version_id: str,
                          transcript_version_sha: str,
                          segments: list[dict],
@@ -125,17 +148,8 @@ def call_provider(*, input_payload: dict, input_sha256: str,
             from houchen_fixtures.fake_provider import fake_analyze
             candidates = fake_analyze(input_payload)
         else:
-            # Real providers would be wired here. We deliberately DO NOT
-            # call them in this PR — the brief requires explicit user
-            # authorization for live-model eval (ENGINEERING_TEST_PLAN §10).
-            return AnalyzeOutcome(
-                video_id=input_payload.get("video_id", ""),
-                outcome="analyze_failed",
-                error_class="provider_disabled",
-                detail=_redact(f"provider={provider!r} not enabled in PR-3 v1; "
-                                f"use --provider fake for offline tests."),
-                input_sha256=input_sha256,
-            )
+            candidates = _call_real_provider(
+                input_payload, provider=provider, model=model)
         # A CLI analyze run can cover many videos. The run artifact therefore
         # aggregates one item per video instead of overwriting the previous
         # provider result at `<runs>/<run_id>.json`. Preserve the legacy

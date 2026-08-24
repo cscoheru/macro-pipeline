@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.parse
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
@@ -41,6 +42,72 @@ class VaultWriter(Protocol):
 
     def put_pipeline(self, vault_path: str, content: str) -> None: ...
     def get_pipeline(self, vault_path: str) -> Optional[str]: ...
+
+
+class ObsidianLocalRestWriter:
+    """Obsidian Local REST API writer for the houchen research namespace.
+
+    Uses `HOUCHEN_PUBLISH_*` from `config/houchen_publish.env` — never reads
+    macro `config/rest.env` or imports `lib/vault_writer.py`.
+    `put_pipeline` / `get_pipeline` accept the **full** vault path
+    (e.g. `Research/世界苦茶/video/id.md`).
+    """
+
+    def __init__(self, base_url: str, api_token: str,
+                 timeout: float = 15.0) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_token = api_token
+        self.timeout = timeout
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_token}"}
+
+    def _url(self, vault_path: str) -> str:
+        return f"{self.base_url}/vault/{urllib.parse.quote(vault_path)}"
+
+    def put_pipeline(self, vault_path: str, content: str) -> None:
+        import requests
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        response = requests.put(
+            self._url(vault_path),
+            headers={
+                **self._headers(),
+                "Content-Type": "text/markdown; charset=utf-8",
+            },
+            data=content.encode("utf-8"),
+            verify=False,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+
+    def get_pipeline(self, vault_path: str) -> Optional[str]:
+        import requests
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        response = requests.get(
+            self._url(vault_path),
+            headers=self._headers(),
+            verify=False,
+            timeout=self.timeout,
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.text
+
+
+def obsidian_writer_from_env() -> ObsidianLocalRestWriter:
+    """Build `ObsidianLocalRestWriter` from `houchen_publish.env`."""
+    cfg = houchen_publish_paths.load_publish_config()
+    timeout = float(cfg.get("HOUCHEN_PUBLISH_TIMEOUT", "15"))
+    return ObsidianLocalRestWriter(
+        base_url=cfg["HOUCHEN_PUBLISH_BASE_URL"],
+        api_token=cfg["HOUCHEN_PUBLISH_API_TOKEN"],
+        timeout=timeout,
+    )
 
 
 class DryRunVaultWriter:

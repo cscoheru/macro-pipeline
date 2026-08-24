@@ -1287,7 +1287,7 @@ def run_publish(conn, *, page_ids=None, kind=None,
         # an explicit kwarg via a one-shot adapter.
         try:
             result = publish_with_path(
-                conn, page_id=page_id, vault_path=vault_path,
+                conn=conn, page_id=page_id, vault_path=vault_path,
                 vault_writer=vault_writer, actor=actor)
         except houchen_publisher.PublishError as exc:
             summary["page_results"].append({

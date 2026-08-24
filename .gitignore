@@ -16,6 +16,8 @@ queue/
 
 # --- Secrets: Obsidian Local REST API tokens etc. ---
 config/rest.env
+config/houchen_publish.env
+config/houchen_analyze.env
 config/*.env
 !config/*.env.example
 

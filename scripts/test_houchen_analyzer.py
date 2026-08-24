@@ -20,6 +20,7 @@ import stat
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -166,33 +167,47 @@ class TestCallProviderFake(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Real providers are explicitly disabled (audit F-6)
+# Real providers (houchen_analyze.env required)
 # ---------------------------------------------------------------------------
 
-class TestRealProvidersDisabled(unittest.TestCase):
-    def test_anthropic_returns_failed_outcome(self):
-        for _ in _tmp_root():
-            segs = [_seg(0, "test text")]
-            payload, sha = houchen_analyzer.build_input_payload(
-                video_id="aaaaaaaaaaaa", transcript_version_id="hctv_test",
-                transcript_version_sha="a" * 64, segments=segs)
-            outcome = houchen_analyzer.call_provider(
-                input_payload=payload, input_sha256=sha, run_id="hcrun_disabled",
-                provider="anthropic")
+class TestRealProviders(unittest.TestCase):
+    def test_missing_env_returns_failed_outcome(self):
+        for tmp in _tmp_root():
+            fake_env = os.path.join(tmp, "houchen_analyze.env")
+            with mock.patch("houchen_analyze_env.analyze_env_path",
+                              return_value=fake_env):
+                segs = [_seg(0, "test text")]
+                payload, sha = houchen_analyzer.build_input_payload(
+                    video_id="aaaaaaaaaaaa", transcript_version_id="hctv_test",
+                    transcript_version_sha="a" * 64, segments=segs)
+                outcome = houchen_analyzer.call_provider(
+                    input_payload=payload, input_sha256=sha,
+                    run_id="hcrun_noenv", provider="deepseek")
             self.assertEqual(outcome.outcome, "analyze_failed")
-            self.assertEqual(outcome.error_class, "provider_disabled")
-            self.assertIn("anthropic", (outcome.detail or "").lower())
+            self.assertIn(outcome.error_class,
+                          ("missing_config", "provider_error", "missing_api_key"))
 
-    def test_deepseek_returns_failed_outcome(self):
-        for _ in _tmp_root():
-            segs = [_seg(0, "test text")]
+    def test_real_provider_mocked(self):
+        fake_candidates = {
+            "claims": [], "concept_links": [], "proposed_concepts": [],
+            "reasoning_edges": [], "evidence_mentions": [],
+            "forecast_candidates": [], "rejection_reasons": [],
+        }
+        for tmp in _tmp_root():
+            os.environ["HOUCHEN_DATA_ROOT"] = tmp
+            segs = [_seg(0, "中央财政需扩大转移支付。")]
             payload, sha = houchen_analyzer.build_input_payload(
                 video_id="aaaaaaaaaaaa", transcript_version_id="hctv_test",
                 transcript_version_sha="a" * 64, segments=segs)
-            outcome = houchen_analyzer.call_provider(
-                input_payload=payload, input_sha256=sha, run_id="hcrun_disabled2",
-                provider="deepseek")
-            self.assertEqual(outcome.outcome, "analyze_failed")
+            with mock.patch(
+                "houchen_analyzer._call_real_provider",
+                return_value=fake_candidates,
+            ):
+                outcome = houchen_analyzer.call_provider(
+                    input_payload=payload, input_sha256=sha,
+                    run_id="hcrun_mock", provider="deepseek")
+            self.assertEqual(outcome.outcome, "success")
+            self.assertIsNotNone(outcome.artifact_path)
 
 
 # ---------------------------------------------------------------------------

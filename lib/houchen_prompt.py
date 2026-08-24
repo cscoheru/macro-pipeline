@@ -99,6 +99,23 @@ def serialize_input(payload: dict) -> bytes:
                       separators=(",", ":")).encode("utf-8")
 
 
+def analysis_prompt_path() -> str:
+    import os
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(repo, "config", "houchen_analysis_prompt.md")
+
+
+def load_analysis_prompt_and_schema() -> tuple[str, dict, str]:
+    """Load houchen analysis prompt + JSON schema (not macro insight files)."""
+    with open(analysis_prompt_path(), encoding="utf-8") as fh:
+        prompt = fh.read()
+    schema = analysis_input_json_schema()
+    version = hashlib.sha256(
+        serialize_input({"prompt": prompt, "schema": schema})
+    ).hexdigest()[:16]
+    return prompt, schema, version
+
+
 def analysis_input_json_schema() -> dict:
     """The JSON Schema the model's response must conform to (brief §9.2).
 
