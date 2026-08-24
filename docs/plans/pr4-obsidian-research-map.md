@@ -83,10 +83,10 @@ source of truth.
 
 | Virtual table | Source row | Tokenizer / columns |
 |---|---|---|
-| `transcript_fts` | `transcript_segment` (one row per segment) | unicode61 (`tokenchars='_‐―'`); columns: `text` (unindexed content); unindexed `transcript_version_id`, `video_id`, `start_ms`, `end_ms`, `ordinal`. |
-| `claim_fts` | `claim` (only `status='accepted'`) | unicode61; columns: `claim_text`; unindexed `video_id`, `claim_id`, `claim_type`, `layer`. |
-| `concept_fts` | `concept` (status in {'proposed','canonical'}) | unicode61; columns: `canonical_name`, `definition`; unindexed `concept_id`, `status`. |
-| `concept_alias_fts` | `concept_alias` | unicode61; columns: `alias`; unindexed `concept_id`, `source`. |
+| `transcript_fts` | `transcript_segment` (one row per segment) | unicode61; **indexed**: `text`. **unindexed**: `transcript_version_id`, `start_ms`, `end_ms`, `ordinal`. (Video id is resolved by JOIN against `transcript_version` in `houchen_search.py` because `transcript_segment` has no `video_id` column — F-1 audit fix.) |
+| `claim_fts` | `claim` (only `status='accepted'`) | unicode61; **indexed**: `claim_text`. **unindexed**: `claim_id`, `claim_type`, `layer`, `video_id` (JOIN to `claim_source` if needed). |
+| `concept_fts` | `concept` (status in {'proposed','canonical'}) | unicode61; **indexed**: `canonical_name`, `definition`. **unindexed**: `concept_id`, `status`. |
+| `concept_alias_fts` | `concept_alias` | unicode61; **indexed**: `alias`. **unindexed**: `concept_id`, `source`. |
 
 A row-id `trigram` (or n-gram) auxiliary column is **not** added in v1. Per
 brief §10 the default unicode tokenizer is used first; the fixed query
@@ -96,10 +96,10 @@ benchmark (§8.4) is the gate for any future change.
 
 | Trigger | Table | Event | Body |
 |---|---|---|---|
-| `trg_transcript_segment_ai` | `transcript_segment` | AFTER INSERT | INSERT into `transcript_fts(rowid, text, transcript_version_id, video_id, start_ms, end_ms, ordinal)` VALUES (new.rowid, new.text, new.transcript_version_id, new.video_id, new.start_ms, new.end_ms, new.ordinal). |
+| `trg_transcript_segment_ai` | `transcript_segment` | AFTER INSERT | INSERT into `transcript_fts(rowid, text, transcript_version_id, start_ms, end_ms, ordinal)` VALUES (new.rowid, new.text, new.transcript_version_id, new.start_ms, new.end_ms, new.ordinal). (No `video_id`; resolved by JOIN in `houchen_search.py` — F-1 audit fix.) |
 | `trg_transcript_segment_au` | `transcript_segment` | AFTER UPDATE | UPDATE `transcript_fts` SET text=new.text WHERE rowid=old.rowid. |
-| `trg_transcript_segment_ad` | `transcript_segment` | AFTER DELETE | INSERT INTO `transcript_fts`(transcript_fts, rowid, text, …) VALUES('delete', old.rowid, old.text, …). |
-| `trg_claim_ai / au / ad` | `claim` | INSERT / UPDATE / DELETE | Same shape, restricted to `status='accepted'`. Reinsert after a status flip from `needs_review` → `accepted` is supported. |
+| `trg_transcript_segment_ad` | `transcript_segment` | AFTER DELETE | INSERT INTO `transcript_fts`(transcript_fts, rowid, text, transcript_version_id, start_ms, end_ms, ordinal) VALUES('delete', old.rowid, old.text, old.transcript_version_id, old.start_ms, old.end_ms, old.ordinal). |
+| `trg_claim_ai / au / ad` | `claim` | INSERT / UPDATE / DELETE | Same shape, restricted to `status='accepted'`. Reinsert after a status flip from `needs_review` → `accepted` is supported. The `au` trigger must delete-then-insert when `status` flips so the FTS row moves with it. |
 | `trg_concept_ai / au / ad` | `concept` | INSERT / UPDATE / DELETE | Same shape, includes both `proposed` and `canonical`. |
 | `trg_concept_alias_ai / au / ad` | `concept_alias` | INSERT / UPDATE / DELETE | Same shape. |
 
@@ -242,7 +242,7 @@ implemented in this PR but is **never auto-invoked**: it requires
 |---|---|---|---|
 | `video` | one per `video` (after `validated`) | YouTube URL, date, `transcript_version_id`, `analysis_run_id`, `prompt_version`, accepted claim count, rejected claim count, needs-review count, link to concept page(s) referenced, link to forecast page(s) referenced. | "机器提取 / 已校验 / 人工复核" status callout; analysis provenance; claim list with exact-quote + timestamp link. |
 | `concept` | one per `concept` (status `proposed` or `canonical`) | `concept_id`, `canonical_name`, `domain_slugs`, `first_seen_at`, `last_seen_at`, every `concept_source` row, every `claim_concept` row joined to `claim` + `claim_source` ordered by `transcript_segment.start_ms`. | Three ordered sections: **Canonical definition** (concept_source.role='canonical_definition'), **Speaker uses** (role='speaker_definition', 'usage'), **System analyses** (claim rows where `claim.layer='system_evaluation'`); callout separating "model" from "human". |
-| `claim` | one per `accepted claim` (only if `brief §11.claims.scale = per-claim`; default rollup into `video` and `concept` pages) | claim_id, claim_text, claim_type, layer, speaker, exact_quote, timestamp_url, transcript_version_id, raw_caption_sha256. | Exact-quote block, source-time link, layer status callout. |
+| `claim` | one per `accepted claim` (**S-2 audit fix — v1 OFF by default**: the `claim` kind stays in the `page_kind` CHECK so future opt-in is a CLI flag, not a schema change; but `render` / `publish` exclude `claim` unless `--include-claim-pages` is passed and the operator is authorized) | claim_id, claim_text, claim_type, layer, speaker, exact_quote, timestamp_url, transcript_version_id, raw_caption_sha256. | Exact-quote block, source-time link, layer status callout. |
 | `forecast` | one per `claim_id` with ≥1 `forecast` row | forecast_id, time_window_start/end, outcome_condition, status. | Time-window table; "candidate" badge. |
 | `review_queue` | one per `corpus_run` of `kind='validate'` with non-zero `needs_review` count | run_id, started_at, summary, per-rule reject count. | Brief "needs review" manifest; the macro library never writes to it. |
 | `coverage` | one per `status` snapshot | schema_version, claim_outcomes, concept_state, analyze_scope, transcript_state. | Reproduce `coverage_markdown` plus "next render SHA" footer. |
@@ -372,7 +372,7 @@ shasum -a 256 \
   docs/厚辰/世界苦茶研究库/CLAUDE_CODE_IMPLEMENTATION_BRIEF.md \
   docs/厚辰/世界苦茶研究库/CODEX_ACCEPTANCE_PROTOCOL.md \
   docs/厚辰/世界苦茶研究库/ENGINEERING_TEST_PLAN.md
-shasum -a 256 data/store.db     # expect 47e4de3d5cf5c1316b7b366f0fa244e735a61c5a
+shasum -a 256 data/store.db     # expect 52c12c82d11f32c05ae6658aade5e20da1c1204966d386c2e05be516a5898ed7 (accepted baseline from PR-1 §9.5)
 find data/houchen -type f | wc -l # expect 0
 
 # Smoke dry-runs (zero writes)
@@ -416,7 +416,13 @@ render → publish) must leave the macro tree byte- and mtime-identical.
 3. **Macro insight library entanglement.** The `houchen_publish*` modules
    are forbidden from importing `lib/insight_publisher.py` or writing to
    `data/store.db`. A `tests/test_houchen_publisher.py` grep + import
-   smoke test enforces the rule.
+   smoke test enforces the rule. **S-4 audit fix**: a CI-style guard test
+   `test_pr4_isolation_guards` runs `grep -RE "insight_publisher|data/store.db"`
+   against `lib/houchen_search.py`, `lib/houchen_render.py`,
+   `lib/houchen_publisher.py`, `lib/houchen_publish_paths.py`,
+   `lib/houchen_runner.py`'s new `run_search` / `run_render` / `run_publish`
+   blocks, and `scripts/houchen_pipeline.py`'s `search` / `render` /
+   `publish` subcommands; any match fails the test.
 4. **Schema v4 not portable to non-FTS5 SQLite builds.** `validate_schema`
    rejects a v3 → v4 migration on a SQLite without FTS5; the runner
    exits 2 with a remediation message. A real CI box without FTS5 is
@@ -446,12 +452,31 @@ render → publish) must leave the macro tree byte- and mtime-identical.
 
 ## 13. Acceptance checklist for `reviews/PR4_PLAN_AUDIT_*.md`
 
+**Audit corrections (F-1 / F-2 / S-* applied; this list is the close-out):**
+
+- [x] **F-1 (blocking).** `transcript_segment` has no `video_id`. Plan §1.1
+      drops `video_id` from the FTS column list; plan §1.2 trigger body
+      omits it. `houchen_search.py` joins `transcript_version` to resolve
+      `video_id` at query time.
+- [x] **F-2 (blocking doc).** §9 verification `data/store.db` SHA is now
+      the accepted PR-1 baseline `52c12c82d11f32c05ae6658aade5e20da1c1204966d386c2e05be516a5898ed7`,
+      not the `47e4de3` git commit SHA.
+- [x] **S-2.** Per-claim pages are **off by default in v1**. `claim` is
+      kept in the `page_kind` CHECK (so future opt-in is a CLI flag, not
+      a schema change); `render` and `publish` exclude it unless
+      `--include-claim-pages` is passed.
+- [x] **S-4.** Isolation is enforced by a guard test that greps the new
+      modules and CLI subcommands for `insight_publisher` and
+      `data/store.db`. Any match fails the suite.
+
+**Implementation gates (must hold when code lands):**
+
 - [ ] Phase 0 FTS5 covers `transcript`, `claim`, `concept+alias` (brief §10).
 - [ ] `search` CLI is read-only and uses the fixed query set as a gate.
 - [ ] `publish` default is dry-run; `--apply --operator-authorized`
       recorded in `publish_run.summary_json`.
 - [ ] All new modules do **not** import `lib/insight_publisher.py` and
-      do **not** touch `data/store.db`.
+      do **not** touch `data/store.db` (S-4 guard test green).
 - [ ] Page render is deterministic (SHA-identical on re-render).
 - [ ] Concept page separates canonical / speaker / system sections and
       never co-mingles `speaker_statement` with model analysis.
