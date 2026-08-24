@@ -113,7 +113,7 @@ def _recreate_with_widened_check(conn, table) -> None:
     if table == "corpus_run":
         new_ddl = """CREATE TABLE corpus_run (
             run_id TEXT PRIMARY KEY,
-            kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize')),
+            kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed')),
             started_at TEXT NOT NULL,
             finished_at TEXT,
             status TEXT NOT NULL CHECK(status IN ('running','success','partial','failed')),
@@ -133,11 +133,12 @@ def _recreate_with_widened_check(conn, table) -> None:
             run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
             stage TEXT NOT NULL CHECK(stage IN ('catalog','subtitle_inventory',
                                                  'subtitle_download','subtitle_parse',
-                                                 'freeze','normalize')),
+                                                 'freeze','normalize','analyze','validate','concept_seed')),
             outcome TEXT NOT NULL CHECK(outcome IN ('success','skipped','missing',
                                                     'auth_required','unavailable',
                                                     'retryable','tool_error',
                                                     'permanent_error','raw_integrity_error',
+                                                    'analyze_failed','validate_failed','concept_seed_failed',
                                                     'normalize_failed')),
             error_class TEXT,
             detail TEXT,
@@ -239,8 +240,65 @@ def ensure_schema(conn) -> None:
         )
     _apply_v1(conn)
     _apply_v2(conn)
+    _apply_v3(conn)
     if current_version(conn) != LATEST_VERSION:
         raise sqlite3.DatabaseError(
             f"houchen migration incomplete: expected {LATEST_VERSION},"
             f" got {current_version(conn)}"
         )
+
+
+def _apply_v3(conn) -> None:
+    """Apply v3 atomically (PR-3: atomic claim extraction + concept seeding).
+
+    Mirrors _apply_v2's invariants:
+      - One BEGIN IMMEDIATE, in-lock re-check.
+      - Schema validation GATE before recording the version row.
+      - corpus_run / corpus_attempt already had their CHECK widened to v3
+        values in _V1_STATEMENTS (so this branch only adds v3 tables + indexes;
+        no further CHECK widening required). For an UPGRADE path where v1+v2
+        already exist with old CHECKs, the v2 migration's
+        `_recreate_with_widened_check` is now v3-aware (it writes the
+        same widened CHECK string for both v2 and v3 transitions), so the
+        post-v2 schema already passes v3's `_V1_CHECKS`.
+    """
+    try:
+        conn.execute("BEGIN IMM IMMEDIATE".replace("BEGIN IMM IMMEDIATE", "BEGIN IMMEDIATE"))
+        ver = current_version(conn)
+        if ver >= 3:
+            if houchen_schema.validate_schema(conn):
+                conn.execute("COMMIT")
+                return
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "schema_version claims v3 but schema does not validate; "
+                "refusing to adopt foreign schema"
+            )
+        if ver < 2:
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "cannot apply v3: schema_version is below v2 (need transcript_version + transcript_segment)"
+            )
+        for stmt in houchen_schema._V3_STATEMENTS:
+            conn.execute(stmt)
+        if not houchen_schema.validate_schema(conn):
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "schema does not validate after v3 migration; refusing to record"
+            )
+        conn.execute(
+            "INSERT INTO schema_version(version, applied_at, description)"
+            " VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?)",
+            ("PR-3: atomic claim extraction + concept seeding",),
+        )
+        conn.execute("COMMIT")
+    except sqlite3.IntegrityError:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        if houchen_schema.validate_schema(conn):
+            return
+        raise
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise

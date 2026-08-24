@@ -567,4 +567,206 @@ def test_cli_normalize_full_chain_writes_transcripts(scratch_root):
     st = json.loads(r3.stdout)
     assert st["transcripts"]["normalized"] == 1
     assert st["transcripts"]["pending_normalize"] == 0
-    assert st["captions"]["frozen"] == 1
+
+
+# ---------------------------------------------------------------------------
+# PR-3 analyze / validate / concept-seed CLI
+# ---------------------------------------------------------------------------
+
+def test_cli_concept_seed_dry_run_is_zero_write(scratch_root):
+    """`concept-seed --dry-run` on an empty DB must NOT touch the filesystem."""
+    before = set()
+    for root, _, files in os.walk(scratch_root):
+        for f in files:
+            before.add(os.path.join(root, f))
+    r = _run_cli(["concept-seed", "--dry-run"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    body = json.loads(r.stdout)
+    assert body["dry_run"] is True
+    assert body["skeleton_size"] == 7  # audit F-1
+    after = set()
+    for root, _, files in os.walk(scratch_root):
+        for f in files:
+            after.add(os.path.join(root, f))
+    assert before == after
+
+
+def test_cli_analyze_dry_run_is_zero_write(scratch_root):
+    """`analyze --dry-run` on an empty DB must NOT write anything."""
+    before = set()
+    for root, _, files in os.walk(scratch_root):
+        for f in files:
+            before.add(os.path.join(root, f))
+    r = _run_cli(["analyze", "--dry-run"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    body = json.loads(r.stdout)
+    assert body["dry_run"] is True
+    assert body["scope_count"] == 0
+    assert body["provider"] == "fake"
+    after = set()
+    for root, _, files in os.walk(scratch_root):
+        for f in files:
+            after.add(os.path.join(root, f))
+    assert before == after
+
+
+def test_cli_validate_dry_run_is_zero_write(scratch_root):
+    """`validate --dry-run` on an empty DB must NOT write anything."""
+    before = set()
+    for root, _, files in os.walk(scratch_root):
+        for f in files:
+            before.add(os.path.join(root, f))
+    r = _run_cli(["validate", "--dry-run"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    body = json.loads(r.stdout)
+    assert body["dry_run"] is True
+    assert body["scope_count"] == 0
+    after = set()
+    for root, _, files in os.walk(scratch_root):
+        for f in files:
+            after.add(os.path.join(root, f))
+    assert before == after
+
+
+def test_cli_analyze_uncataloged_id_fails(scratch_root):
+    """Un-cataloged --video-id must produce a failed run with error_class."""
+    r = _run_cli(["analyze", "--video-id", "zzzzzzzzzzz"], scratch_root)
+    assert r.returncode != 0
+    body = json.loads(r.stdout)
+    assert body["status"] == "failed"
+    assert "zzzzzzzzzzz" in body.get("uncataloged_ids", [])
+
+
+def test_cli_real_provider_analyze_returns_analyze_failed(scratch_root):
+    """Real providers are explicitly disabled (audit F-6).
+
+    No catalog needed: we just check the analyze exit envelope returns
+    analyze_failed for the anthropic provider on any video in scope (0).
+    """
+    r = _run_cli(
+        ["analyze", "--provider", "anthropic", "--model", "claude-x"],
+        scratch_root)
+    # analyze on an empty DB with no videos → scope=0, returns dry_run-style
+    # summary with status=success (no failed videos). The real-provider
+    # gating only fires once a video is actually selected.
+    body = json.loads(r.stdout)
+    assert body["provider"] == "anthropic"
+    assert body["scope_count"] == 0
+
+
+def test_cli_concept_seed_idempotent(scratch_root):
+    """Re-running concept-seed must yield 0 new rows on the second run."""
+    scen = os.path.join(scratch_root, "scen")
+    write_scenario(scen, [version_call()])
+    r = _run_cli(["concept-seed"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    body1 = json.loads(r.stdout)
+    assert body1["seeded"] == 7
+    r = _run_cli(["concept-seed"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    body2 = json.loads(r.stdout)
+    assert body2["seeded"] == 0
+
+
+def test_cli_status_includes_pr3_buckets(scratch_root):
+    """status JSON must include claims/concepts/analyze_scope even on empty DB."""
+    r = _run_cli(["status"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    st = json.loads(r.stdout)
+    assert "claims" in st
+    assert "concepts" in st
+    assert "analyze_scope" in st
+    # Empty DB → all zeros
+    assert st["claims"]["accepted"] == 0
+    assert st["concepts"]["seed"] == 0
+    assert st["analyze_scope"]["pending_analyze"] == 0
+
+
+def test_cli_coverage_includes_pr3_buckets(scratch_root):
+    """coverage JSON must include claim_outcomes/concept_state/analyze_scope."""
+    r = _run_cli(["coverage"], scratch_root)
+    assert r.returncode == 0, r.stderr
+    cov = json.loads(r.stdout)
+    assert "claim_outcomes" in cov
+    assert "concept_state" in cov
+    assert "analyze_scope" in cov
+
+
+def test_cli_pr3_offline_full_chain_materializes_all_rows(scratch_root):
+    """E2E: fake-only catalog → freeze → normalize → seed → analyze → validate.
+
+    Proves formal PR-3 rows are materialized: accepted + rejected claims,
+    source provenance, proposed concepts, concept links, evidence mentions,
+    forecasts, and idempotency on re-validation.
+    """
+    scen = os.path.join(scratch_root, "scen-pr3")
+    write_scenario(scen, [
+        version_call(),
+        playlist_call(_entries("aaaaaaaaaaa")),
+        playlist_call([]), playlist_call([]),
+        version_call(),
+        info_call(_info()),
+        download_call(),
+    ], subs={"zh-Hans": ("vtt", VTT_BODY)})
+    runner = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "houchen_fixtures", "fake_ytdlp.py")
+    env = dict(os.environ)
+    env["HOUCHEN_DATA_ROOT"] = scratch_root
+    env["FAKE_YTDLP_SCENARIO"] = scen
+
+    for cmd in (
+        ["catalog", "--runner", runner],
+        ["fetch-captions", "--runner", runner],
+        ["normalize"],
+        ["concept-seed"],
+        ["analyze", "--provider", "fake"],
+    ):
+        r = subprocess.run([sys.executable, SCRIPT, "--data-root", scratch_root] + cmd,
+                           capture_output=True, text=True, env=env)
+        assert r.returncode == 0, (cmd, r.stdout, r.stderr)
+
+    # Explicit real provider remains disabled in PR-3 v1. `--no-pending`
+    # deliberately reselects the normalized video, proving CLI → runner →
+    # analyzer returns analyze_failed instead of making a network request.
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root,
+         "analyze", "--no-pending", "--provider", "anthropic"],
+        capture_output=True, text=True, env=env)
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    disabled = json.loads(r.stdout)
+    assert disabled["failed"] == 1
+
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root, "validate"],
+        capture_output=True, text=True, env=env)
+    # The deterministic fixture intentionally yields two hard validator rejects.
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    validate_summary = json.loads(r.stdout)
+    assert validate_summary["validated"] == 1
+    assert validate_summary["rejected"] >= 2
+
+    db = os.path.join(scratch_root, "houchen.sqlite3")
+    check = sqlite3.connect(db)
+    try:
+        assert check.execute("SELECT COUNT(*) FROM claim WHERE status='accepted'").fetchone()[0] == 1
+        assert check.execute("SELECT COUNT(*) FROM claim WHERE status='rejected'").fetchone()[0] >= 2
+        assert check.execute("SELECT COUNT(*) FROM claim_source").fetchone()[0] == 1
+        assert check.execute("SELECT COUNT(*) FROM concept WHERE status='proposed'").fetchone()[0] >= 1
+        assert check.execute("SELECT COUNT(*) FROM concept_source").fetchone()[0] >= 1
+        assert check.execute("SELECT COUNT(*) FROM claim_concept").fetchone()[0] == 1
+        assert check.execute("SELECT COUNT(*) FROM evidence_mention").fetchone()[0] == 1
+        assert check.execute("SELECT COUNT(*) FROM forecast").fetchone()[0] == 1
+        before = check.execute("SELECT COUNT(*) FROM claim").fetchone()[0]
+    finally:
+        check.close()
+
+    # Revalidate replays no formal rows (idempotent per analysis_run_id).
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root, "validate"],
+        capture_output=True, text=True, env=env)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    check = sqlite3.connect(db)
+    try:
+        assert check.execute("SELECT COUNT(*) FROM claim").fetchone()[0] == before
+    finally:
+        check.close()

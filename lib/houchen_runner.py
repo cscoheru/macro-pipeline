@@ -25,14 +25,20 @@ from typing import Callable, Iterable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import houchen_acquisition as acq
+import houchen_analyzer  # PR-3: claim extraction + provider orchestration
+import houchen_concept  # PR-3: domain seed + concept lifecycle
 import houchen_normalizer  # PR-2: deterministic transcript normalizer
 import houchen_paths
 import houchen_schema
 import houchen_store
+import houchen_validator  # PR-3: brief §9.3 hard validator
 
 
 DEFAULT_NORMALIZER_NAME = houchen_normalizer.NORMALIZER_NAME
 DEFAULT_NORMALIZER_VERSION = houchen_normalizer.NORMALIZER_VERSION
+DEFAULT_ANALYSIS_PROVIDER = "fake"  # PR-3 v1: offline-only per audit F-6
+DEFAULT_PROMPT_VERSION = "2026-08-24.1"  # mirrors houchen_prompt.PROMPT_VERSION
+DEFAULT_SCHEMA_VERSION = "claim_extraction_v1"  # mirrors houchen_prompt.SCHEMA_VERSION
 
 
 DEFAULT_CHANNEL_HANDLE = "@flipradio_fearnation"
@@ -602,3 +608,479 @@ def _write_normalize_failure_artifact(run_id, video_id, *, error):
     except Exception:
         # Failure-to-log is itself non-fatal.
         pass
+
+
+# ---------------------------------------------------------------------------
+# PR-3: analyze / validate / concept_seed
+# ---------------------------------------------------------------------------
+
+def _select_analyze_scope(conn, *, video_ids=None, pending_only=True):
+    """Select normalized videos eligible for analysis without N+1 queries.
+
+    The latest matching normalizer output is derived in one CTE; a second CTE
+    limits the exclusion set to *successful* analyze attempts whose parent run
+    also completed successfully. This avoids both historical-run duplication
+    and a partial/failed run incorrectly suppressing a replay.
+    """
+    if video_ids is not None:
+        return [v for v in video_ids
+                if _valid_video_id(v) and _has_ok_transcript(conn, v)]
+    if pending_only:
+        rows = conn.execute(
+            "WITH latest_tv AS ("
+            "  SELECT video_id, status,"
+            "         ROW_NUMBER() OVER (PARTITION BY video_id"
+            "           ORDER BY created_at DESC, transcript_version_id DESC) AS rn"
+            "  FROM transcript_version"
+            "  WHERE normalizer_name=? AND normalizer_version=?"
+            "), analyzed AS ("
+            "  SELECT DISTINCT ca.video_id FROM corpus_attempt ca"
+            "  JOIN corpus_run cr ON cr.run_id=ca.run_id"
+            "  WHERE ca.stage='analyze' AND ca.outcome='success'"
+            "    AND cr.kind='analyze' AND cr.status='success'"
+            ")"
+            " SELECT v.video_id FROM video v"
+            " JOIN latest_tv tv ON tv.video_id=v.video_id AND tv.rn=1"
+            " LEFT JOIN analyzed a ON a.video_id=v.video_id"
+            " WHERE tv.status='ok' AND a.video_id IS NULL"
+            " ORDER BY v.discovered_at ASC",
+            (DEFAULT_NORMALIZER_NAME, DEFAULT_NORMALIZER_VERSION)).fetchall()
+        return [r[0] for r in rows]
+    rows = conn.execute(
+        "SELECT v.video_id FROM video v"
+        " JOIN transcript_version tv ON tv.video_id = v.video_id"
+        "      AND tv.status = 'ok'"
+        " ORDER BY v.discovered_at ASC").fetchall()
+    return [r[0] for r in rows]
+
+
+def _has_ok_transcript(conn, video_id) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM transcript_version"
+        " WHERE video_id=? AND status='ok' LIMIT 1",
+        (video_id,)).fetchone() is not None
+
+
+def _load_segments_for_transcript(conn, transcript_version_id):
+    rows = conn.execute(
+        "SELECT ordinal, start_ms, end_ms, text, raw_cue_start,"
+        "       raw_cue_end, speaker"
+        " FROM transcript_segment WHERE transcript_version_id=?"
+        " ORDER BY ordinal ASC",
+        (transcript_version_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _load_transcript_for_video(conn, video_id):
+    row = conn.execute(
+        "SELECT transcript_version_id, content_sha256"
+        " FROM transcript_version"
+        " WHERE video_id=? AND status='ok'"
+        " ORDER BY created_at DESC, transcript_version_id DESC LIMIT 1",
+        (video_id,)).fetchone()
+    return (row["transcript_version_id"], row["content_sha256"]) if row else (None, None)
+
+
+def run_analyze(conn, *, video_ids=None, pending_only=True, limit=None,
+                dry_run=False, provider=DEFAULT_ANALYSIS_PROVIDER,
+                model="") -> dict:
+    """PR-3: build input bundles, invoke provider (default fake), persist
+    per-run derived JSON. Mirrors run_normalize's idempotent / best-effort
+    shape."""
+    _validate_limit(limit)
+    summary = {
+        "scope_count": 0, "analyzed": 0, "failed": 0,
+        "dry_run": dry_run, "provider": provider, "model": model,
+    }
+
+    if video_ids is not None:
+        uncataloged = [v for v in video_ids
+                       if _valid_video_id(v) and not _video_exists(conn, v)]
+        if uncataloged:
+            started = _now()
+            run_id = houchen_schema.new_run_id()
+            if not dry_run:
+                _insert_run(conn, run_id, "analyze", started, "running")
+                _finish_run(conn, run_id, "failed",
+                            summary={"uncataloged_ids": uncataloged},
+                            error_class="uncataloged_video",
+                            error_detail="uncataloged: " + ",".join(uncataloged))
+            summary["uncataloged_ids"] = uncataloged
+            summary["run_id"] = run_id
+            summary["status"] = "failed"
+            return summary
+
+    scope = _select_analyze_scope(conn, video_ids=video_ids,
+                                  pending_only=pending_only)
+    if limit is not None:
+        scope = list(scope)[:limit]
+    summary["scope_count"] = len(scope)
+
+    started = _now()
+    run_id = houchen_schema.new_run_id()
+    if not dry_run:
+        _insert_run(conn, run_id, "analyze", started, "running")
+
+    if dry_run:
+        summary["run_id"] = run_id
+        summary["status"] = "dry_run"
+        return summary
+
+    overall = "success"
+    for vid in scope:
+        tv_id, tv_sha = _load_transcript_for_video(conn, vid)
+        if not tv_id:
+            summary["failed"] += 1
+            continue
+        raw = conn.execute(
+            "SELECT raw_caption_sha256 FROM transcript_version"
+            " WHERE transcript_version_id=?", (tv_id,)).fetchone()
+        segments = _load_segments_for_transcript(conn, tv_id)
+        try:
+            payload, sha = houchen_analyzer.build_input_payload(
+                video_id=vid, transcript_version_id=tv_id,
+                transcript_version_sha=tv_sha,
+                segments=segments, model=model, provider=provider,
+            )
+            outcome = houchen_analyzer.call_provider(
+                input_payload=payload, input_sha256=sha,
+                run_id=run_id, provider=provider, model=model,
+            )
+        except Exception as e:  # noqa: BLE001
+            outcome = houchen_analyzer.AnalyzeOutcome(
+                video_id=vid, outcome="analyze_failed",
+                error_class="build_error", detail=str(e))
+
+        # Persist corpus_attempt + commit.
+        try:
+            att_id = houchen_schema.new_attempt_id()
+            conn.execute(
+                "INSERT INTO corpus_attempt"
+                "(att_id, video_id, run_id, stage, outcome, error_class,"
+                " detail, retryable, occurred_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (att_id, vid, run_id, "analyze", outcome.outcome,
+                 outcome.error_class, outcome.detail, 0, _now()))
+            conn.commit()
+        except Exception:
+            pass
+
+        if outcome.outcome == "success":
+            summary["analyzed"] += 1
+        else:
+            summary["failed"] += 1
+            overall = "partial"
+
+    if not dry_run:
+        _finish_run(conn, run_id, overall, summary=summary)
+    summary["run_id"] = run_id
+    summary["status"] = overall
+    return summary
+
+
+def run_validate(conn, *, video_ids=None, limit=None, dry_run=False) -> dict:
+    """Read each analyzed run's artifact, run the hard validator, and write
+    the resulting claim/concept/etc. rows. Per-video idempotent UNIQUE on
+    analysis_run_id."""
+    _validate_limit(limit)
+    summary = {"scope_count": 0, "validated": 0, "rejected": 0,
+               "needs_review": 0, "failed": 0, "dry_run": dry_run}
+
+    # Scope: videos that have at least one successful analyze attempt.
+    if video_ids is not None:
+        scope = [v for v in video_ids if _valid_video_id(v)
+                 and _has_successful_analyze(conn, v)]
+    else:
+        rows = conn.execute(
+            "SELECT DISTINCT ca.video_id FROM corpus_attempt ca"
+            " JOIN corpus_run cr ON cr.run_id = ca.run_id"
+            " WHERE ca.stage='analyze' AND ca.outcome='success'"
+            "   AND cr.status='success'").fetchall()
+        scope = [r[0] for r in rows]
+    if limit is not None:
+        scope = list(scope)[:limit]
+    summary["scope_count"] = len(scope)
+
+    started = _now()
+    run_id = houchen_schema.new_run_id()
+    if not dry_run:
+        _insert_run(conn, run_id, "validate", started, "running")
+
+    if dry_run:
+        summary["run_id"] = run_id
+        summary["status"] = "dry_run"
+        return summary
+
+    overall = "success"
+    for vid in scope:
+        try:
+            accepted, rejected, needs_review = _validate_one_video(conn, vid)
+            summary["validated"] += len(accepted)
+            summary["rejected"] += len(rejected)
+            summary["needs_review"] += len(needs_review)
+            if rejected or needs_review:
+                overall = "partial"
+            conn.execute(
+                "INSERT INTO corpus_attempt"
+                "(att_id, video_id, run_id, stage, outcome, error_class,"
+                " detail, retryable, occurred_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (houchen_schema.new_attempt_id(), vid, run_id, "validate",
+                 "success", None,
+                 json.dumps({"accepted": len(accepted), "rejected": len(rejected),
+                             "needs_review": len(needs_review)}, sort_keys=True),
+                 0, _now()))
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            summary["failed"] += 1
+            overall = "partial"
+            conn.execute(
+                "INSERT INTO corpus_attempt"
+                "(att_id, video_id, run_id, stage, outcome, error_class,"
+                " detail, retryable, occurred_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (houchen_schema.new_attempt_id(), vid, run_id,
+                 "validate", "validate_failed", "validator_error",
+                 str(e), 0, _now()))
+            conn.commit()
+
+    if not dry_run:
+        _finish_run(conn, run_id, overall, summary=summary)
+    summary["run_id"] = run_id
+    summary["status"] = overall
+    return summary
+
+
+def _has_successful_analyze(conn, video_id) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM corpus_attempt"
+        " WHERE video_id=? AND stage='analyze' AND outcome='success' LIMIT 1",
+        (video_id,)).fetchone() is not None
+
+
+def _validate_one_video(conn, video_id):
+    """Validate and persist the latest successful analysis for one video.
+
+    Formal rows retain the *analysis* run as their provenance (`analysis_run_id`;
+    audit F-2), while the caller's validate run records the operational
+    attempt. The artifact is selected by both run and video so a multi-video
+    analyze run can never cross-bind candidates to the wrong transcript.
+    """
+    row = conn.execute(
+        "SELECT ca.run_id, ca.att_id FROM corpus_attempt ca"
+        " JOIN corpus_run cr ON cr.run_id = ca.run_id"
+        " WHERE ca.video_id=? AND ca.stage='analyze'"
+        "   AND ca.outcome='success' AND cr.status='success'"
+        " ORDER BY ca.occurred_at DESC, ca.att_id DESC LIMIT 1",
+        (video_id,)).fetchone()
+    if row is None:
+        return [], [], []
+    analyze_run_id = row["run_id"]
+    artifact = houchen_paths.analysis_artifact_path(analyze_run_id)
+    try:
+        item = houchen_analyzer.load_artifact_item(artifact, video_id)
+        candidates = item["candidates"]
+        bundle = houchen_analyzer.load_input_bundle(item["input_sha256"])
+    except (FileNotFoundError, ValueError, KeyError):
+        return [], [], []
+
+    transcript_version_id = bundle.get("transcript_version_id")
+    if not transcript_version_id or item.get("transcript_version_id") != transcript_version_id:
+        return [], [], []
+    tv = conn.execute(
+        "SELECT raw_caption_sha256 FROM transcript_version"
+        " WHERE transcript_version_id=? AND video_id=? AND status='ok'",
+        (transcript_version_id, video_id)).fetchone()
+    if tv is None:
+        return [], [], []
+    raw_caption_sha256 = tv["raw_caption_sha256"]
+    segments_by_ordinal = houchen_analyzer.segments_for_validator(
+        bundle.get("segments") or [])
+    result = houchen_validator.validate_candidate_bundle(
+        candidates, segments_by_ordinal=segments_by_ordinal,
+        from_model=True,
+    )
+
+    # Per-analysis idempotency: an analysis result is frozen after its first
+    # validation materialization, regardless of whether it yielded accepts or
+    # rejects. The fake always has rejects; this explicit guard also protects
+    # future providers that return only non-claim candidates.
+    if conn.execute(
+        "SELECT 1 FROM claim WHERE analysis_run_id=? LIMIT 1",
+        (analyze_run_id,)).fetchone() is not None:
+        return [], [], []
+
+    import uuid
+    accepted, rejected, needs_review = [], [], []
+    claim_ids_by_index = {}
+    accepted_claims = [c for c in result.accepted if "claim_text" in c]
+    for c in accepted_claims:
+        # Do not let a model cite a different transcript_version than the
+        # content-addressed INPUT it actually saw.
+        if c.get("transcript_version_id") != transcript_version_id:
+            result.per_item_rejects.append(houchen_validator.Reject(
+                candidate_ref=f"claim[{c.get('_index', '?')}]", rule_id="R1",
+                reason="candidate transcript_version_id differs from analysis INPUT"))
+            continue
+        cid = f"hccl_{uuid.uuid7().hex}"
+        conn.execute(
+            "INSERT INTO claim"
+            "(claim_id, video_id, claim_text, claim_type, speaker,"
+            " layer, temporal_scope, modality, status, analysis_run_id,"
+            " created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (cid, video_id, c["claim_text"], c["claim_type"],
+             c.get("speaker"), c["layer"], c.get("temporal_scope"),
+             c.get("modality"), "accepted", analyze_run_id, _now()))
+        conn.execute(
+            "INSERT INTO claim_source"
+            "(claim_id, transcript_version_id, segment_start_ordinal,"
+            " segment_end_ordinal, start_ms, end_ms, exact_quote,"
+            " timestamp_url, raw_caption_sha256) VALUES (?,?,?,?,?,?,?,?,?)",
+            (cid, transcript_version_id, c["segment_start_ordinal"],
+             c["segment_end_ordinal"], c["start_ms"], c["end_ms"],
+             c["exact_quote"], c["timestamp_url"], raw_caption_sha256))
+        claim_ids_by_index[c.get("_index")] = cid
+        accepted.append(cid)
+
+    # Preserve rejected claim candidates as auditable, clearly non-authoritative
+    # rows. Their failed source cannot be promoted into claim_source.
+    for r in result.per_item_rejects:
+        if not r.candidate_ref.startswith("claim["):
+            continue
+        cid = f"hccl_{uuid.uuid7().hex}"
+        conn.execute(
+            "INSERT INTO claim"
+            "(claim_id, video_id, claim_text, claim_type, speaker,"
+            " layer, temporal_scope, modality, status, analysis_run_id,"
+            " created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (cid, video_id, f"[rejected:{r.rule_id}] {r.reason}",
+             "interpretive", None, "system_evaluation", None, None,
+             "rejected", analyze_run_id, _now()))
+        rejected.append(cid)
+
+    # Proposed concepts remain proposed — never auto-promote (brief §7.2).
+    # The paired concept_source gives a human reviewer the exact corpus anchor.
+    concept_ids_by_name = {}
+    for proposed in candidates.get("proposed_concepts") or []:
+        if not isinstance(proposed, dict) or not proposed.get("canonical_name"):
+            continue
+        cid = houchen_concept.upsert_proposed_concept(
+            conn, canonical_name=proposed["canonical_name"],
+            definition=proposed.get("definition"), origin="corpus",
+            domain_slugs=proposed.get("domain_slugs") or [],
+            analysis_run_id=analyze_run_id)
+        ord_ = proposed.get("first_segment_ordinal", 0)
+        seg = segments_by_ordinal.get(ord_)
+        if seg and proposed.get("first_exact_quote") and houchen_validator.validate_quote_in_segment(
+                {"exact_quote": proposed["first_exact_quote"]}, seg["text"]) is None:
+            houchen_concept.record_concept_source(
+                conn, concept_id=cid, transcript_version_id=transcript_version_id,
+                segment_start_ordinal=ord_, segment_end_ordinal=ord_,
+                start_ms=proposed.get("first_start_ms", seg["start_ms"]),
+                end_ms=proposed.get("first_end_ms", seg["end_ms"]),
+                exact_quote=proposed["first_exact_quote"],
+                timestamp_url=proposed.get("first_timestamp_url", ""),
+                raw_caption_sha256=raw_caption_sha256, source_role="usage",
+                analysis_run_id=analyze_run_id)
+        concept_ids_by_name[proposed["canonical_name"]] = cid
+
+    # Link only claims that survived validation; unresolved concept names enter
+    # the same reversible proposed state rather than being silently dropped.
+    for link in candidates.get("concept_links") or []:
+        if not isinstance(link, dict):
+            continue
+        claim_id = claim_ids_by_index.get(link.get("candidate_claim_index"))
+        name = link.get("concept_canonical_name")
+        relation = link.get("relation")
+        if not claim_id or not name or relation not in (
+                "defines", "uses", "exemplifies", "qualifies", "relates"):
+            continue
+        concept_id = concept_ids_by_name.get(name)
+        if concept_id is None:
+            concept_id = houchen_concept.upsert_proposed_concept(
+                conn, canonical_name=name, definition=None, origin="corpus",
+                analysis_run_id=analyze_run_id)
+            concept_ids_by_name[name] = concept_id
+        conn.execute(
+            "INSERT OR IGNORE INTO claim_concept"
+            "(claim_id, concept_id, relation, analysis_run_id) VALUES (?,?,?,?)",
+            (claim_id, concept_id, relation, analyze_run_id))
+
+    for mention in candidates.get("evidence_mentions") or []:
+        if not isinstance(mention, dict) or not mention.get("text"):
+            continue
+        if mention.get("transcript_version_id") != transcript_version_id:
+            continue
+        conn.execute(
+            "INSERT INTO evidence_mention"
+            "(mention_id, video_id, transcript_version_id, segment_ordinal,"
+            " text, mention_type, external_entity_candidate, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (f"hcem_{uuid.uuid7().hex}", video_id, transcript_version_id,
+             mention.get("segment_ordinal", 0), mention["text"],
+             mention.get("mention_type", "reference"),
+             mention.get("external_entity_candidate"), _now()))
+
+    for forecast in candidates.get("forecast_candidates") or []:
+        if not isinstance(forecast, dict):
+            continue
+        claim_id = claim_ids_by_index.get(forecast.get("for_claim_index"))
+        if not claim_id or houchen_validator.validate_forecast_has_criteria(forecast):
+            continue
+        conn.execute(
+            "INSERT INTO forecast"
+            "(forecast_id, claim_id, time_window_start, time_window_end,"
+            " outcome_condition, status) VALUES (?,?,?,?,?,?)",
+            (f"hcfc_{uuid.uuid7().hex}", claim_id,
+             forecast.get("time_window_start"), forecast.get("time_window_end"),
+             forecast["outcome_condition"], "candidate"))
+
+    for edge in candidates.get("reasoning_edges") or []:
+        if not isinstance(edge, dict) or houchen_validator.validate_reasoning_edge_source(edge):
+            continue
+        from_id = claim_ids_by_index.get(edge.get("from_claim_index"))
+        to_id = claim_ids_by_index.get(edge.get("to_claim_index"))
+        if not from_id or not to_id:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO reasoning_edge"
+            "(from_claim_id, to_claim_id, relation, layer, source_id,"
+            " transcript_version_id, exact_quote, start_ms, end_ms,"
+            " timestamp_url, analysis_run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (from_id, to_id, edge.get("relation"), edge.get("layer"), None,
+             edge.get("transcript_version_id"), edge.get("exact_quote"),
+             edge.get("start_ms"), edge.get("end_ms"),
+             edge.get("timestamp_url"), analyze_run_id))
+
+    conn.commit()
+    return accepted, rejected, needs_review
+
+
+def houchen_prompt_input_sha(run_id):
+    """Read the input_sha256 from an analysis artifact (best-effort)."""
+    try:
+        import json
+        with open(houchen_paths.analysis_artifact_path(run_id), "r",
+                  encoding="utf-8") as f:
+            doc = json.load(f)
+        return doc.get("input_sha256")
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def run_concept_seed(conn, *, dry_run=False) -> dict:
+    """One-shot: insert the 7 domain slugs (brief §7.2 + audit F-1).
+    Idempotent — re-running is a no-op."""
+    summary = {"seeded": 0, "dry_run": dry_run}
+    started = _now()
+    run_id = houchen_schema.new_run_id()
+    if not dry_run:
+        _insert_run(conn, run_id, "concept_seed", started, "running")
+        n = houchen_concept.seed_domain_skeleton(conn)
+        conn.commit()
+        _finish_run(conn, run_id, "success",
+                    summary={"seeded": n, "actor": "system"})
+        summary["seeded"] = n
+    summary["run_id"] = run_id
+    summary["status"] = "success" if not dry_run else "dry_run"
+    return summary

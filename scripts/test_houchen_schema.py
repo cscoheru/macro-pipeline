@@ -187,7 +187,7 @@ def test_concurrent_first_migration_100_rounds():
             check.row_factory = sqlite3.Row
             versions = [r[0] for r in check.execute(
                 "SELECT version FROM schema_version ORDER BY version").fetchall()]
-            assert versions == [1, 2]
+            assert versions == [1, 2, 3]
             assert houchen_schema.validate_schema(check)
             check.close()
 
@@ -305,3 +305,73 @@ def test_state_machine_pending_retryable(conn):
     assert houchen_schema.is_pending(conn, "bbbbbbbbbbb") is False  # missing terminal
     assert houchen_schema.is_pending(conn, "ccccccccccc") is True   # retryable
     assert houchen_schema.is_pending(conn, "ddddddddddd") is True   # no attempt
+
+
+# ---------------------------------------------------------------------------
+# PR-3 v3 schema
+# ---------------------------------------------------------------------------
+
+def test_v3_migration_creates_pr3_tables(conn):
+    """After v3, the 13 new tables (domain, concept, claim, ...) exist."""
+    conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    for required in (
+        "domain", "concept", "concept_alias", "concept_domain",
+        "concept_source", "claim", "claim_source", "claim_concept",
+        "reasoning_edge", "evidence_mention", "external_evidence",
+        "evaluation", "forecast",
+    ):
+        assert required in tables, f"missing table {required}"
+
+
+def test_v3_corpus_run_kind_widened(conn):
+    """corpus_run.kind CHECK must accept 'analyze', 'validate', 'concept_seed'."""
+    run = "hcrun_v3_kind"
+    conn.execute(
+        "INSERT INTO corpus_run(run_id, kind, started_at, status,"
+        " config_sha256, tool_versions_json) VALUES (?,?,?,?,?,?)",
+        (run, "analyze", "t", "running", "z" * 64, "{}"))
+    conn.execute(
+        "INSERT INTO corpus_run(run_id, kind, started_at, status,"
+        " config_sha256, tool_versions_json) VALUES (?,?,?,?,?,?)",
+        (run + "v", "validate", "t", "running", "z" * 64, "{}"))
+    conn.execute(
+        "INSERT INTO corpus_run(run_id, kind, started_at, status,"
+        " config_sha256, tool_versions_json) VALUES (?,?,?,?,?,?)",
+        (run + "c", "concept_seed", "t", "running", "z" * 64, "{}"))
+    conn.commit()
+
+
+def test_v3_corpus_attempt_stage_widened(conn):
+    """corpus_attempt.stage CHECK must accept analyze/validate/concept_seed."""
+    run = "hcrun_v3_stage"
+    _insert_video(conn, "aaaaaaaaaaa")
+    conn.execute(
+        "INSERT INTO corpus_run(run_id, kind, started_at, status,"
+        " config_sha256, tool_versions_json) VALUES (?,?,?,?,?,?)",
+        (run, "analyze", "t", "running", "z" * 64, "{}"))
+    for stage, outcome in (
+        ("analyze", "analyze_failed"),
+        ("validate", "validate_failed"),
+        ("concept_seed", "concept_seed_failed"),
+    ):
+        conn.execute(
+            "INSERT INTO corpus_attempt(att_id, video_id, run_id, stage,"
+            " outcome, retryable, occurred_at) VALUES (?,?,?,?,?,?,?)",
+            (f"hcatt_{stage}", "aaaaaaaaaaa", run, stage, outcome, 0, "t"))
+    conn.commit()
+
+
+def test_v3_claim_layer_check_rejects_unknown(conn):
+    """claim.layer CHECK accepts only the three brief §3.1.5 values."""
+    import pytest as _pytest
+    _insert_video(conn, "aaaaaaaaaaa")
+    with _pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO claim(claim_id, video_id, claim_text, claim_type,"
+            " layer, status, analysis_run_id, created_at) "
+            " VALUES (?,?,?,?,?,?,?,?)",
+            ("hccl_x", "aaaaaaaaaaa", "x", "descriptive", "bogus_layer",
+             "accepted", "hcrun_x", "t"))
+    conn.commit()

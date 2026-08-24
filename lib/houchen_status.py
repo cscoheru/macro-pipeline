@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import houchen_schema
 
 
-OUTPUT_VERSION = "1.1"
+OUTPUT_VERSION = "1.2"
 
 
 def _now() -> str:
@@ -89,6 +89,73 @@ def _transcript_state_counts(conn) -> dict:
     }
 
 
+def _claim_state_counts(conn) -> dict:
+    """PR-3 claim-state buckets (orthogonal to caption + transcript state).
+
+    Counts `claim` rows grouped by `status`. Pre-PR-3 schemas return the
+    empty bucket (no claim rows yet).
+    """
+    applied = _schema_version(conn)
+    if applied < 3:
+        return {"accepted": 0, "needs_review": 0, "rejected": 0,
+                "proposed": 0}
+    rows = conn.execute(
+        "SELECT status, COUNT(*) FROM claim GROUP BY status"
+    ).fetchall()
+    out = {"accepted": 0, "needs_review": 0, "rejected": 0, "proposed": 0}
+    for r in rows:
+        out[r[0] or "unknown"] = r[1]
+    return out
+
+
+def _concept_state_counts(conn) -> dict:
+    """PR-3 concept-state buckets: seed (domain rows) + proposed / canonical /
+    deprecated concept rows. Pre-PR-3 returns 0 for every bucket."""
+    applied = _schema_version(conn)
+    if applied < 3:
+        return {"seed": 0, "proposed": 0, "canonical": 0, "deprecated": 0}
+    seed = conn.execute("SELECT COUNT(*) FROM domain").fetchone()[0] or 0
+    rows = conn.execute(
+        "SELECT status, COUNT(*) FROM concept GROUP BY status"
+    ).fetchall()
+    out = {"seed": seed, "proposed": 0, "canonical": 0, "deprecated": 0}
+    for r in rows:
+        out[r[0] or "unknown"] = r[1]
+    return out
+
+
+def _analyze_scope_counts(conn) -> dict:
+    """PR-3 analyze-scope buckets, derived without historical-run inflation.
+
+    `latest_tv` provides one current transcript per video and `analyzed`
+    deduplicates successful analyze attempts whose parent run completed, so
+    the two aggregate buckets remain mutually exclusive.
+    """
+    applied = _schema_version(conn)
+    if applied < 3:
+        return {"pending_analyze": 0, "analyzed": 0}
+    row = conn.execute(
+        "WITH latest_tv AS ("
+        "  SELECT video_id, status,"
+        "         ROW_NUMBER() OVER (PARTITION BY video_id"
+        "           ORDER BY created_at DESC, transcript_version_id DESC) AS rn"
+        "  FROM transcript_version"
+        "), analyzed AS ("
+        "  SELECT DISTINCT ca.video_id FROM corpus_attempt ca"
+        "  JOIN corpus_run cr ON cr.run_id=ca.run_id"
+        "  WHERE ca.stage='analyze' AND ca.outcome='success'"
+        "    AND cr.kind='analyze' AND cr.status='success'"
+        ")"
+        " SELECT"
+        "  SUM(CASE WHEN tv.status='ok' AND a.video_id IS NULL THEN 1 ELSE 0 END),"
+        "  SUM(CASE WHEN tv.status='ok' AND a.video_id IS NOT NULL THEN 1 ELSE 0 END)"
+        " FROM video v"
+        " LEFT JOIN latest_tv tv ON tv.video_id=v.video_id AND tv.rn=1"
+        " LEFT JOIN analyzed a ON a.video_id=v.video_id"
+    ).fetchone()
+    return {"pending_analyze": row[0] or 0, "analyzed": row[1] or 0}
+
+
 def _schema_version(conn) -> int:
     try:
         row = conn.execute(
@@ -101,6 +168,8 @@ def _schema_version(conn) -> int:
 def status(conn, *, yt_dlp_version: str = "") -> dict:
     buckets = _state_counts(conn)
     transcripts = _transcript_state_counts(conn)
+    claims = _claim_state_counts(conn)
+    concepts = _concept_state_counts(conn)
     return {
         "schema_version": _current_schema_version(conn),
         "output_version": OUTPUT_VERSION,
@@ -126,6 +195,9 @@ def status(conn, *, yt_dlp_version: str = "") -> dict:
             "normalized": transcripts["normalized"],
             "pending_normalize": transcripts["pending_normalize"],
         },
+        "claims": claims,
+        "concepts": concepts,
+        "analyze_scope": _analyze_scope_counts(conn),
         "oldest_pending": _oldest_pending(conn),
         "recent_errors_by_class": _recent_error_classes(conn),
     }
@@ -134,6 +206,8 @@ def status(conn, *, yt_dlp_version: str = "") -> dict:
 def coverage(conn) -> dict:
     buckets = _state_counts(conn)
     transcripts = _transcript_state_counts(conn)
+    claims = _claim_state_counts(conn)
+    concepts = _concept_state_counts(conn)
     return {
         "schema_version": _current_schema_version(conn),
         "output_version": OUTPUT_VERSION,
@@ -143,13 +217,16 @@ def coverage(conn) -> dict:
         "by_content_kind": _count_by(conn, "video", "content_kind"),
         "caption_outcomes": buckets,
         "transcript_state": transcripts,
+        "claim_outcomes": claims,
+        "concept_state": concepts,
+        "analyze_scope": _analyze_scope_counts(conn),
         "catalog_partial": _catalog_partial(conn),
     }
 
 
 def coverage_markdown(conn) -> str:
     cov = coverage(conn)
-    lines = ["# Hou Chen corpus coverage (PR-1)", "",
+    lines = ["# Hou Chen corpus coverage (PR-1 + PR-3)", "",
              f"schema_version={cov['schema_version']} output_version={cov['output_version']}",
              f"generated_at={cov['generated_at']}", ""]
     lines.append("## By collection")
@@ -162,6 +239,22 @@ def coverage_markdown(conn) -> str:
     lines.append("")
     lines.append("## Caption outcomes")
     for name, n in sorted(cov["caption_outcomes"].items()):
+        lines.append(f"- {name}: {n}")
+    lines.append("")
+    lines.append("## Transcript state")
+    for name, n in sorted(cov["transcript_state"].items()):
+        lines.append(f"- {name}: {n}")
+    lines.append("")
+    lines.append("## Claim outcomes")
+    for name, n in sorted(cov["claim_outcomes"].items()):
+        lines.append(f"- {name}: {n}")
+    lines.append("")
+    lines.append("## Concept state")
+    for name, n in sorted(cov["concept_state"].items()):
+        lines.append(f"- {name}: {n}")
+    lines.append("")
+    lines.append("## Analyze scope")
+    for name, n in sorted(cov["analyze_scope"].items()):
         lines.append(f"- {name}: {n}")
     lines.append("")
     lines.append("## Catalog partial gaps")
