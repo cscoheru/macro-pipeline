@@ -26,3 +26,6 @@ config/*.env
 .vscode/
 .gstack/
 backups/
+
+# houchen fixture transient files (written by fake_ytdlp.py during test runs)
+scripts/houchen_fixtures/observed_calls.jsonl

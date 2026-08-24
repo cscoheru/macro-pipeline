@@ -106,6 +106,47 @@ runner 从内容寻址事实包生成结构化结果 → 本地 schema/事实门
 - Obsidian Local REST API 插件（已启用，token 在 vault `.obsidian/plugins/obsidian-local-rest-api/data.json`）
 - 若 Obsidian 未运行 → vault 写入会失败（记日志+通知），但数据仍存本地 SQLite/快照，下次 Obsidian 开启后 `--rebuild` 可补
 
+## `data/store.db` red-line discipline
+
+`data/store.db` is the hot SQLite database rewritten by every `run.py` invocation
+(launchd ticks at 09:07 and 16:07). The PR-1 R3 dispute was resolved by
+accepting the new FRED baseline and adding `lib/presnapshot.py` — but that only
+helps going forward. This section documents the tooling that makes recovery
+possible after a bad write.
+
+**Snapshot location, rotation, naming**
+
+`data/backups/store-YYYYMMDD-HHMMSS.db.gz` — gzipped at compresslevel 6,
+SHA-256 of the plain (gunzipped) bytes embedded in the filename and verifiable
+against the stored hash. Retention is 30 snapshots; oldest are pruned on each
+`run.py` run.
+
+**Verify** (one-liner red-line check):
+
+```bash
+python3 scripts/verify_store_redline.py --expect 52c12c82d11f32c05ae6658aade5e20da1c1204966d386c2e05be516a5898ed7
+# exit 0 = live store.db matches expected SHA
+# exit 1 = mismatch — investigate before running the pipeline
+# exit 2 = no snapshots available
+# exit 3 = live store.db missing
+```
+
+**Restore preview**:
+
+```bash
+python3 scripts/restore_store_from_snapshot.py --snapshot store-20260824-115556.db.gz --dry-run
+```
+
+**Full restore workflow**:
+
+1. `verify_store_redline.py`确认当前 SHA 不在预期范围内 → 确认需要恢复
+2. `restore_store_from_snapshot.py --snapshot <name> --dry-run` 预览计划
+3. `restore_store_from_snapshot.py --snapshot <name> --force` 执行原子恢复
+   - 当前 live 状态先备份到 `data/store.db.<UTC>.bak`
+   - snapshot gunzip 到 `store.db.tmp` → fsync → `os.replace` → chmod 0600
+   - post-restore SHA 验证；若不匹配 exit 5，.bak 保留，可手动恢复
+4. `verify_store_redline.py` 确认恢复后 SHA 匹配快照
+
 ## 添加一个新源
 1. `config/sources.yaml` 加源配置（url/parser/cadence/series）
 2. `lib/fetcher.py` 加抓取+解析函数

@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 
 import yaml
 import paths
+import presnapshot  # launchd pre-snapshot of data/store.db (best-effort)
 import fetcher
 import store
 import ledger
@@ -849,6 +850,16 @@ def run(sources_requested, *, insights=None, no_generate=False,
 
 
 def main():
+    # Pre-snapshot data/store.db so any future red-line check (audit / 验收)
+    # has a recoverable SHA baseline. launchd triggers a daily rewrite at
+    # 09:07 / 16:07 and `data/` is gitignored, so without this there is no
+    # way to compare today's store.db against an earlier state. The call is
+    # best-effort: failures are swallowed inside `snapshot_store_db` and the
+    # pipeline continues normally. Must precede `setup_logging()` so the
+    # snapshot exists even if logging init touches data/.
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    presnapshot.snapshot_store_db(repo_root=repo_root)
+
     ap = argparse.ArgumentParser(description="Macro data pipeline")
     ap.add_argument("--source", action="append", help="source to run (repeatable); default all enabled")
     ap.add_argument("--rebuild", action="store_true",
