@@ -443,6 +443,87 @@ def test_research_modules_do_not_import_macro_coupled_modules():
             assert f"from {f_mod}" not in cleaned
 
 
+def test_pr4_publish_modules_do_not_import_macro_coupled():
+    """S-4 audit guard (PR-4 Phase 1): the new publish-side modules MUST
+    NOT import any macro-coupled module, and MUST NOT mention the macro
+    store path (the publishing surface is in `<data_root>/publish/`).
+    A match in any of the new files fails the suite — the rule is
+    hard-coded into the audit guard, not advisory.
+
+    The check uses the `ast` module to walk only executable code:
+    docstrings and comments are ignored (they may reference the rule
+    for documentation). Only `import` / `from-import` statements and
+    plain string literals that sit in non-docstring positions count.
+    """
+    import ast
+    import os
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    new_modules = [
+        os.path.join(repo, "lib", "houchen_search.py"),
+        os.path.join(repo, "lib", "houchen_render.py"),
+        os.path.join(repo, "lib", "houchen_publisher.py"),
+        os.path.join(repo, "lib", "houchen_publish_paths.py"),
+        os.path.join(repo, "lib", "houchen_runner.py"),
+        os.path.join(repo, "scripts", "houchen_pipeline.py"),
+    ]
+    forbidden_imports = (
+        "store", "insight_provider", "insight_validate",
+        "insight_render", "insight_runner", "insight_publisher",
+        "insight_context", "vault_writer", "ledger", "migrations",
+        "notify", "readings_cache", "detector", "stats",
+        "cn_parsers", "jp_parsers", "de_parsers", "fetcher",
+    )
+    forbidden_string_literals = (
+        "data/store.db",
+    )
+    for path in new_modules:
+        assert os.path.exists(path), f"missing: {path}"
+        with open(path, encoding="utf-8") as fh:
+            source = fh.read()
+        tree = ast.parse(source, filename=path)
+        # Walk every Import / ImportFrom and every plain string literal
+        # that is NOT inside a docstring node (ast.get_docstring marks
+        # the module-level docstring; nested docstrings are Expr nodes
+        # whose value is a Constant whose value is a str).
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    mod = alias.name.split(".")[0]
+                    assert mod not in forbidden_imports, (
+                        f"{path} imports forbidden macro-coupled module "
+                        f"{mod!r} (S-4 audit guard) at line {node.lineno}")
+            elif isinstance(node, ast.ImportFrom):
+                mod = (node.module or "").split(".")[0]
+                assert mod not in forbidden_imports, (
+                    f"{path} imports forbidden macro-coupled module "
+                    f"{mod!r} (S-4 audit guard) at line {node.lineno}")
+            elif (isinstance(node, ast.Constant)
+                  and isinstance(node.value, str)
+                  and not _is_docstring(node, tree)):
+                for needle in forbidden_string_literals:
+                    assert needle not in node.value, (
+                        f"{path} contains forbidden path {needle!r} "
+                        f"(S-4 audit guard) at line {node.lineno}")
+
+
+def _is_docstring(node: "ast.Constant", tree: "ast.Module") -> bool:
+    """True if `node` is a docstring (module-level or nested)."""
+    import ast
+    # Module docstring: tree.body[0] is Expr(value=Constant(str)).
+    if (tree.body and isinstance(tree.body[0], ast.Expr)
+            and tree.body[0].value is node):
+        return True
+    # Nested docstring: the immediate parent is an Expr statement whose
+    # value is the same Constant.
+    for parent in ast.walk(tree):
+        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef,
+                               ast.ClassDef, ast.Module)):
+            if (parent.body and isinstance(parent.body[0], ast.Expr)
+                    and parent.body[0].value is node):
+                return True
+    return False
+
+
 def test_research_db_path_independent():
     assert os.path.realpath(houchen_paths.sqlite_path()) != \
         os.path.realpath(macro_paths.STORE_DB)

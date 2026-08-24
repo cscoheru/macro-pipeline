@@ -187,7 +187,7 @@ def test_concurrent_first_migration_100_rounds():
             check.row_factory = sqlite3.Row
             versions = [r[0] for r in check.execute(
                 "SELECT version FROM schema_version ORDER BY version").fetchall()]
-            assert versions == [1, 2, 3]
+            assert versions == [1, 2, 3, 4]
             assert houchen_schema.validate_schema(check)
             check.close()
 
@@ -375,3 +375,52 @@ def test_v3_claim_layer_check_rejects_unknown(conn):
             ("hccl_x", "aaaaaaaaaaa", "x", "descriptive", "bogus_layer",
              "accepted", "hcrun_x", "t"))
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# v4 publish ledger (PR-4 Phase 1)
+# ---------------------------------------------------------------------------
+
+def test_v4_publish_tables_exist(conn):
+    """Schema v4 must include the publish ledger tables (rendered_page /
+    publish_record / publish_run)."""
+    for tbl in ("rendered_page", "publish_record", "publish_run"):
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (tbl,)).fetchone()
+        assert row is not None, f"missing v4 publish table: {tbl}"
+
+
+def test_v4_rendered_page_check_rejects_unknown_kind(conn):
+    import pytest as _pytest
+    with _pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO rendered_page(rendered_page_id, page_kind,"
+            "       page_key, template_version, render_sha256, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ("rp_bogus", "bogus_kind", "k", "v", "0" * 64, "t"))
+
+
+def test_v4_publish_record_unique_per_page_vpath(conn):
+    """UNIQUE (page_id, vault_path) is the idempotency gate."""
+    conn.execute(
+        "INSERT INTO rendered_page(rendered_page_id, page_kind,"
+        "       page_key, template_version, render_sha256, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        ("rp_v", "video", "k1", "v1", "0" * 64, "t"))
+    conn.execute(
+        "INSERT INTO publish_record(publish_id, page_id, vault_path,"
+        "       vault_sha256, status) VALUES (?, ?, ?, ?, ?)",
+        ("pub_1", "rp_v", "Research/v.md", "0" * 64, "published"))
+    import pytest as _pytest
+    with _pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO publish_record(publish_id, page_id, vault_path,"
+            "       vault_sha256, status) VALUES (?, ?, ?, ?, ?)",
+            ("pub_2", "rp_v", "Research/v.md", "0" * 64, "failed"))
+    conn.commit()
+
+
+def test_v4_validate_schema_passes(conn):
+    import houchen_schema
+    assert houchen_schema.validate_schema(conn)

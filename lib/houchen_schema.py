@@ -239,7 +239,7 @@ _V1_STATEMENTS = [
        BEGIN SELECT RAISE(ABORT, 'schema_version is append-only: DELETE forbidden'); END""",
     """CREATE TABLE IF NOT EXISTS corpus_run (
          run_id TEXT PRIMARY KEY,
-         kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed')),
+         kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed','publish','search','render')),
          started_at TEXT NOT NULL,
          finished_at TEXT,
          status TEXT NOT NULL CHECK(status IN ('running','success','partial','failed')),
@@ -307,13 +307,15 @@ _V1_STATEMENTS = [
          run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
          stage TEXT NOT NULL CHECK(stage IN ('catalog','subtitle_inventory',
                                               'subtitle_download','subtitle_parse',
-                                              'freeze','normalize','analyze','validate','concept_seed')),
+                                              'freeze','normalize','analyze','validate','concept_seed',
+                                              'publish','search','render')),
          outcome TEXT NOT NULL CHECK(outcome IN ('success','skipped','missing',
                                                  'auth_required','unavailable',
                                                  'retryable','tool_error',
                                                  'permanent_error','raw_integrity_error',
                                                  'analyze_failed','validate_failed','concept_seed_failed',
-                                                 'normalize_failed')),
+                                                 'normalize_failed',
+                                                 'publish_failed','search_failed','render_failed')),
          error_class TEXT,
          detail TEXT,
          retryable INTEGER NOT NULL DEFAULT 0 CHECK(retryable IN (0,1)),
@@ -1121,12 +1123,19 @@ _V1_INDEX_SPEC = {
 
 # table -> expected CHECK expressions (normalized, the inner IN(...) clause).
 # After v2 is applied, corpus_run.kind gains 'normalize' and corpus_attempt
-# gains 'normalize' / 'normalize_failed'. `_V1_CHECKS` is therefore the
-# post-v2 canonical form; `validate_schema()` checks this against the live
-# schema once v1 (or v2) has been applied.
+# `_V1_CHECKS` is the canonical CHECK form for every version that has
+# shipped — the v1 install creates the table with these exact CHECK
+# strings (see `_V1_STATEMENTS` near the top of this file). PR-3 widened
+# the corpus_run / corpus_attempt sets; PR-4 widens them again with
+# 'publish', 'search', 'render' plus their `*_failed` outcomes. The
+# migration runtime keeps `corpus_run` / `corpus_attempt` in lock-step
+# with these values via `_recreate_with_widened_check` in
+# `lib/houchen_migrations.py`.
 _V1_CHECKS = {
     "corpus_run": [
-        "kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed')",
+        "kind IN ('catalog','caption_fetch','preflight','normalize',"
+        "'analyze','validate','concept_seed',"
+        "'publish','search','render')",
         "status IN ('running','success','partial','failed')",
     ],
     "video": [
@@ -1141,12 +1150,41 @@ _V1_CHECKS = {
     ],
     "corpus_attempt": [
         "stage IN ('catalog','subtitle_inventory','subtitle_download',"
-        "'subtitle_parse','freeze','normalize','analyze','validate','concept_seed')",
-        "outcome IN ('success','skipped','missing','auth_required','unavailable',"
-        "'retryable','tool_error','permanent_error','raw_integrity_error',"
-        "'analyze_failed','validate_failed','concept_seed_failed',"
-        "'normalize_failed')",
+        "'subtitle_parse','freeze','normalize','analyze','validate',"
+        "'concept_seed',"
+        "'publish','search','render')",
+        "outcome IN ('success','skipped','missing','auth_required',"
+        "'unavailable','retryable','tool_error','permanent_error',"
+        "'raw_integrity_error','analyze_failed','validate_failed',"
+        "'concept_seed_failed','normalize_failed',"
+        "'publish_failed','search_failed','render_failed')",
         "retryable IN (0,1)",
+    ],
+}
+
+
+# v4 CHECK widening is documented separately for the validator pass that
+# fires only when schema_version >= 4. Because `_V1_CHECKS` is already
+# v4 form (matching the v1 install DDL), this dict only contains the
+# v4-only additions — values that did not exist before v4. Used by
+# `validate_schema` to assert the v4 widening happened at the right
+# point in the migration chain.
+_V4_CHECKS = {
+    "corpus_run": [
+        "kind IN ('catalog','caption_fetch','preflight','normalize',"
+        "'analyze','validate','concept_seed',"
+        "'publish','search','render')",
+    ],
+    "corpus_attempt": [
+        "stage IN ('catalog','subtitle_inventory','subtitle_download',"
+        "'subtitle_parse','freeze','normalize','analyze','validate',"
+        "'concept_seed',"
+        "'publish','search','render')",
+        "outcome IN ('success','skipped','missing','auth_required',"
+        "'unavailable','retryable','tool_error','permanent_error',"
+        "'raw_integrity_error','analyze_failed','validate_failed',"
+        "'concept_seed_failed','normalize_failed',"
+        "'publish_failed','search_failed','render_failed')",
     ],
 }
 
@@ -1172,6 +1210,33 @@ def _strip_ws(sql: str) -> str:
     canonical form is otherwise identical."""
     import re
     return re.sub(r"\s+", "", sql or "")
+
+
+def _extract_in_values(text: str) -> set[str] | None:
+    """Extract the literal values from every `IN (...)` clause in `text`.
+
+    Returns a set of values (single-quoted SQL literals with the quotes
+    preserved) collected across ALL `IN (...)` clauses in `text`, or
+    None if no `IN (` clause is present. A table may declare multiple
+    `IN (...)` CHECKs in the same DDL (e.g. corpus_run has both
+    `kind IN (...)` and `status IN (...)`); a single regex pass returns
+    the union of every value list. That union is what `validate_schema`
+    compares against (subset) when checking a single expected value set.
+
+    The matcher is whitespace-tolerant between `IN` and `(` because both
+    the v1 DDL and the validator's expected CHECK strings render with a
+    space there. Values are assumed to be simple single-quoted literals
+    (no embedded commas, no escape sequences), which covers every CHECK
+    clause the research corpus actually uses.
+    """
+    import re
+    matches = re.findall(r"IN\s*\(([^)]*)\)", text or "", flags=re.IGNORECASE)
+    if not matches:
+        return None
+    out: set[str] = set()
+    for inner in matches:
+        out.update(re.findall(r"'[^']*'", inner))
+    return out
 
 
 def _table_xinfo(conn, table):
@@ -1263,14 +1328,25 @@ def validate_schema(conn) -> bool:
                 return False
 
     # 4. CHECK clauses present in each table's DDL (whitespace-insensitive,
-    # since SQLite reformats line-wrapped CHECK lists).
+    # since SQLite reformats line-wrapped CHECK lists). The matching is
+    # set-based on the `IN (...)` value list: the live CHECK's values are
+    # extracted and compared to the expected set. This is the only way to
+    # support multiple cumulative widenings (v1 → v2 → v3 → v4) without
+    # the v1 install failing with v4-only expectations.
     for table, checks in _V1_CHECKS.items():
         sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
             (table,)).fetchone()
         norm = _strip_ws(sql[0]) if sql else ""
         for check in checks:
-            if _strip_ws(check) not in norm:
+            expected = _extract_in_values(check)
+            if expected is None:
+                # Fallback: legacy substring match for non-IN CHECKs.
+                if _strip_ws(check) not in norm:
+                    return False
+                continue
+            got = _extract_in_values(norm)
+            if got is None or not expected.issubset(got):
                 return False
 
     if _applied_version(conn) >= 2:
@@ -1280,7 +1356,30 @@ def validate_schema(conn) -> bool:
                 (table,)).fetchone()
             norm = _strip_ws(sql[0]) if sql else ""
             for check in checks:
-                if _strip_ws(check) not in norm:
+                expected = _extract_in_values(check)
+                if expected is None:
+                    if _strip_ws(check) not in norm:
+                        return False
+                    continue
+                got = _extract_in_values(norm)
+                if got is None or not expected.issubset(got):
+                    return False
+
+    # 4b. v4 CHECK widening pass (publish / search / render additions).
+    if _applied_version(conn) >= 4:
+        for table, checks in _V4_CHECKS.items():
+            sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                (table,)).fetchone()
+            norm = _strip_ws(sql[0]) if sql else ""
+            for check in checks:
+                expected = _extract_in_values(check)
+                if expected is None:
+                    if _strip_ws(check) not in norm:
+                        return False
+                    continue
+                got = _extract_in_values(norm)
+                if got is None or not expected.issubset(got):
                     return False
 
     # 5. Triggers: table, event, and RAISE(ABORT, …) body (v1 only — v2 adds no
@@ -1300,6 +1399,47 @@ def validate_schema(conn) -> bool:
             return False
         if msg not in norm:
             return False
+
+    # 6. v4 FTS5 substrate. Only checked once schema_version >= 4 (i.e. the
+    #    v4 migration has run). Each FTS5 virtual table is identified by
+    #    `sqlite_master.type='table'` and a DDL that contains `USING fts5`
+    #    (case-insensitive; SQLite stores the DDL with whatever casing the
+    #    CREATE statement used, and a v1 install with FTS5 enabled stores
+    #    the table with the original `USING fts5` casing).
+    if _applied_version(conn) >= 4:
+        for fts_name in ("transcript_fts", "claim_fts",
+                         "concept_fts", "concept_alias_fts"):
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master"
+                " WHERE type='table' AND name=?",
+                (fts_name,)).fetchone()
+            if not row:
+                return False
+            if "fts5" not in (row[0] or "").lower():
+                return False
+        # Required sync triggers.
+        for trig in (
+            "trg_transcript_segment_ai", "trg_transcript_segment_au",
+            "trg_transcript_segment_ad",
+            "trg_claim_ai", "trg_claim_au", "trg_claim_ad",
+            "trg_concept_ai", "trg_concept_au", "trg_concept_ad",
+            "trg_concept_alias_ai", "trg_concept_alias_au", "trg_concept_alias_ad",
+        ):
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master"
+                " WHERE type='trigger' AND name=?",
+                (trig,)).fetchone()
+            if not row:
+                return False
+
+        # 7. v4 publish ledger (rendered_page / publish_record / publish_run).
+        for pub_table in ("rendered_page", "publish_record", "publish_run"):
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master"
+                " WHERE type='table' AND name=?",
+                (pub_table,)).fetchone()
+            if not row:
+                return False
 
     return True
 
@@ -1404,6 +1544,227 @@ def pending_video_ids(conn) -> list:
     return [r[0] for r in conn.execute(sql).fetchall()]
 
 
-# Latest applied schema version. Bumped from 2 → 3 by PR-3 (atomic claim
-# extraction + concept seeding).
-VERSION = 3
+# v4 DDL — FTS5 virtual tables + triggers. Single statements; FTS5
+# availability is detected at runtime (see `_apply_v4` in
+# `lib/houchen_migrations.py`); a SQLite build without FTS5 fails closed.
+#
+# The fixed-query benchmark (`scripts/houchen_fixtures/fixed_query_set.py`)
+# is the gate that any future tokenizer change must pass. The default
+# `unicode61` tokenizer does NOT handle CJK word segmentation
+# (Chinese / Japanese / Korean have no whitespace), so MATCH on
+# '财政' against '中央财政转移支付' returns 0 rows — verified during
+# PR-4 Phase 0 implementation. The trigram tokenizer (FTS5 built-in,
+# SQLite ≥ 3.34) tokenizes the text into overlapping 3-character
+# windows and matches substrings. SQLite 3.50.4 (this environment) is
+# the minimum required to use this PR; older builds fail closed in
+# `_apply_v4` via the FTS5-availability probe.
+#
+# Audit F-1: `transcript_segment` has no `video_id` column. The
+# `transcript_fts` row therefore stores only `transcript_version_id`,
+# `start_ms`, `end_ms`, `ordinal`; `houchen_search.py` joins
+# `transcript_version` to resolve `video_id` at query time.
+_V4_STATEMENTS = [
+    # Publish ledger tables (Phase 1). These three tables track the
+    # render-then-publish pipeline independently of the macro insight
+    # ledger; they live ONLY in houchen.sqlite3 and never touch
+    # data/store.db. The `page_kind` value set deliberately includes
+    # 'claim' (S-2 audit fix): the kind stays in CHECK so future opt-in
+    # is a CLI flag, but `render` / `publish` exclude `claim` unless
+    # explicitly requested.
+    """CREATE TABLE IF NOT EXISTS rendered_page (
+         rendered_page_id TEXT PRIMARY KEY,
+         page_kind TEXT NOT NULL
+             CHECK(page_kind IN ('video','concept','claim',
+                                 'forecast','review_queue','coverage')),
+         page_key TEXT NOT NULL,
+         template_version TEXT NOT NULL,
+         render_sha256 TEXT NOT NULL,
+         prompt_version TEXT,
+         model_id TEXT,
+         created_at TEXT NOT NULL,
+         attempt_id TEXT REFERENCES corpus_attempt(att_id),
+         UNIQUE (page_kind, page_key, template_version)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_rendered_page_kind
+       ON rendered_page(page_kind)""",
+    """CREATE TABLE IF NOT EXISTS publish_record (
+         publish_id TEXT PRIMARY KEY,
+         page_id TEXT NOT NULL REFERENCES rendered_page(rendered_page_id),
+         vault_path TEXT NOT NULL,
+         vault_sha256 TEXT NOT NULL,
+         status TEXT NOT NULL
+             CHECK(status IN ('pending','put_ok','readback_ok',
+                              'published','failed')),
+         error_class TEXT,
+         detail TEXT,
+         attempted_at TEXT,
+         published_at TEXT,
+         attempt_id TEXT REFERENCES corpus_attempt(att_id),
+         UNIQUE (page_id, vault_path)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_publish_record_status
+       ON publish_record(status)""",
+    """CREATE TABLE IF NOT EXISTS publish_run (
+         run_id TEXT PRIMARY KEY,
+         started_at TEXT NOT NULL,
+         finished_at TEXT,
+         status TEXT NOT NULL
+             CHECK(status IN ('success','partial','failed')),
+         summary_json TEXT
+       )""",
+]
+_V4_FTS_TABLES = [
+    """CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
+         text,
+         transcript_version_id UNINDEXED,
+         start_ms UNINDEXED,
+         end_ms UNINDEXED,
+         ordinal UNINDEXED,
+         tokenize='trigram'
+       )""",
+    """CREATE VIRTUAL TABLE IF NOT EXISTS claim_fts USING fts5(
+         claim_text,
+         claim_id UNINDEXED,
+         claim_type UNINDEXED,
+         layer UNINDEXED,
+         video_id UNINDEXED,
+         tokenize='trigram'
+       )""",
+    """CREATE VIRTUAL TABLE IF NOT EXISTS concept_fts USING fts5(
+         canonical_name,
+         definition,
+         concept_id UNINDEXED,
+         status UNINDEXED,
+         tokenize='trigram'
+       )""",
+    """CREATE VIRTUAL TABLE IF NOT EXISTS concept_alias_fts USING fts5(
+         alias,
+         concept_id UNINDEXED,
+         source UNINDEXED,
+         tokenize='trigram'
+       )""",
+]
+
+
+# Triggers that keep each FTS virtual table in sync with its parent table.
+# The `claim` triggers are restricted to `status='accepted'` (FTS must not
+# index `proposed` / `needs_review` / `rejected`). The `au` triggers for
+# `claim` / `concept` use delete-then-insert so a status flip from
+# `needs_review` → `accepted` (or concept `proposed` → `deprecated`) moves
+# the FTS row correctly.
+_V4_FTS_TRIGGERS = [
+    # transcript_fts — text is the only indexed column; the parent table
+    # never has its ordinals / ms timestamps updated in PR-2 by design
+    # (frozen transcript_version), so the simple UPDATE-on-text is enough.
+    """CREATE TRIGGER IF NOT EXISTS trg_transcript_segment_ai
+       AFTER INSERT ON transcript_segment
+       BEGIN
+         INSERT INTO transcript_fts(rowid, text, transcript_version_id,
+                                    start_ms, end_ms, ordinal)
+         VALUES (new.rowid, new.text, new.transcript_version_id,
+                 new.start_ms, new.end_ms, new.ordinal);
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_transcript_segment_au
+       AFTER UPDATE ON transcript_segment
+       BEGIN
+         UPDATE transcript_fts SET text = new.text WHERE rowid = old.rowid;
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_transcript_segment_ad
+       AFTER DELETE ON transcript_segment
+       BEGIN
+         DELETE FROM transcript_fts WHERE rowid = old.rowid;
+       END""",
+    # claim_fts — restricted to accepted rows; status flip = delete+insert.
+    """CREATE TRIGGER IF NOT EXISTS trg_claim_ai
+       AFTER INSERT ON claim
+       WHEN new.status = 'accepted'
+       BEGIN
+         INSERT INTO claim_fts(rowid, claim_text, claim_id, claim_type,
+                               layer, video_id)
+         VALUES (new.rowid, new.claim_text, new.claim_id, new.claim_type,
+                 new.layer, new.video_id);
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_claim_au
+       AFTER UPDATE ON claim
+       BEGIN
+         DELETE FROM claim_fts WHERE rowid = old.rowid;
+         INSERT INTO claim_fts(rowid, claim_text, claim_id, claim_type,
+                               layer, video_id)
+         SELECT new.rowid, new.claim_text, new.claim_id, new.claim_type,
+                new.layer, new.video_id
+         WHERE new.status = 'accepted';
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_claim_ad
+       AFTER DELETE ON claim
+       BEGIN
+         DELETE FROM claim_fts WHERE rowid = old.rowid;
+       END""",
+    # concept_fts — covers both proposed and canonical; deprecated excluded.
+    """CREATE TRIGGER IF NOT EXISTS trg_concept_ai
+       AFTER INSERT ON concept
+       WHEN new.status IN ('proposed','canonical')
+       BEGIN
+         INSERT INTO concept_fts(rowid, canonical_name, definition,
+                                 concept_id, status)
+         VALUES (new.rowid, new.canonical_name, COALESCE(new.definition,''),
+                 new.concept_id, new.status);
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_concept_au
+       AFTER UPDATE ON concept
+       BEGIN
+         DELETE FROM concept_fts WHERE rowid = old.rowid;
+         INSERT INTO concept_fts(rowid, canonical_name, definition,
+                                 concept_id, status)
+         SELECT new.rowid, new.canonical_name, COALESCE(new.definition,''),
+                new.concept_id, new.status
+         WHERE new.status IN ('proposed','canonical');
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_concept_ad
+       AFTER DELETE ON concept
+       BEGIN
+         DELETE FROM concept_fts WHERE rowid = old.rowid;
+       END""",
+    # concept_alias_fts
+    """CREATE TRIGGER IF NOT EXISTS trg_concept_alias_ai
+       AFTER INSERT ON concept_alias
+       BEGIN
+         INSERT INTO concept_alias_fts(rowid, alias, concept_id, source)
+         VALUES (new.rowid, new.alias, new.concept_id,
+                 COALESCE(new.source,''));
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_concept_alias_au
+       AFTER UPDATE ON concept_alias
+       BEGIN
+         UPDATE concept_alias_fts
+         SET alias = new.alias, source = COALESCE(new.source,'')
+         WHERE rowid = old.rowid;
+       END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_concept_alias_ad
+       AFTER DELETE ON concept_alias
+       BEGIN
+         DELETE FROM concept_alias_fts WHERE rowid = old.rowid;
+       END""",
+]
+
+
+def install_v4(conn) -> None:
+    """Run the v4 FTS5 DDL (virtual tables + sync triggers) AND the v4
+    publish ledger tables (rendered_page / publish_record / publish_run).
+    Idempotent. Used by tests / fast-forward; the canonical migration
+    path runs through `lib/houchen_migrations.py` which additionally
+    recreates `corpus_run` / `corpus_attempt` to widen their CHECK
+    constraints (per the v3 pattern)."""
+    for stmt in _V4_FTS_TABLES:
+        conn.execute(stmt)
+    for trig in _V4_FTS_TRIGGERS:
+        conn.execute(trig)
+    for stmt in _V4_STATEMENTS:
+        conn.execute(stmt)
+
+
+# Latest applied schema version. Bumped from 3 → 4 by PR-4 Phase 0 (FTS5
+# virtual tables + sync triggers). v1 CHECK widening for the new
+# `corpus_run.kind` and `corpus_attempt.stage` / `outcome` values is
+# applied in `_V1_CHECKS` above; the v4 migration runtime recreates the
+# two tables so the live schema matches.
+VERSION = 4

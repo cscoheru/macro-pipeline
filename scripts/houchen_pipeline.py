@@ -32,7 +32,11 @@ sys.path.insert(0, os.path.join(_THIS_DIR, "..", "lib"))
 import houchen_acquisition  # noqa: E402
 import houchen_concept  # noqa: E402
 import houchen_paths  # noqa: E402
+import houchen_publish_paths  # noqa: E402  # PR-4 Phase 1
+import houchen_publisher  # noqa: E402  # PR-4 Phase 1
+import houchen_render  # noqa: E402  # PR-4 Phase 1
 import houchen_runner  # noqa: E402
+import houchen_search  # noqa: E402  # PR-4 Phase 0: FTS5
 import houchen_status  # noqa: E402
 import houchen_store  # noqa: E402
 
@@ -456,6 +460,233 @@ def cmd_concept_seed(args):
         conn.close()
 
 
+def cmd_search(args):
+    """PR-4 Phase 0: read-only FTS5 search (brief §10).
+
+    Always opens the DB read-only (P1-2 / P2-2). Persists a `corpus_run`
+    row in the read-only connection is not possible, so the run row is
+    written via a separate write connection only when not in dry-run.
+    """
+    if args.dry_run:
+        _apply_data_root_override(args)
+        # Dry-run = a NO-OP plan. Print a JSON object that documents the
+        # query and the installed FTS5 status, and exit 0. Never touches
+        # the corpus_run / corpus_attempt tables.
+        plan = {
+            "dry_run": True,
+            "kind": args.kind,
+            "query": args.query,
+            "limit": args.limit,
+            "note": "FTS5 MATCH is read-only; dry-run only documents the query",
+        }
+        print(json.dumps(plan, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    _apply_data_root_override(args)
+    try:
+        conn = houchen_store.connect()
+    except houchen_paths.DataRootError as e:
+        print(f"data-root error: {e}", file=sys.stderr)
+        return EXIT_CONFIG
+    try:
+        summary = houchen_runner.run_search(
+            conn, kind=args.kind, query=args.query, limit=args.limit)
+        print(json.dumps(summary, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    except RuntimeError as e:
+        # Most likely: FTS5 substrate not installed (schema_version < 4).
+        print(f"search failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    except Exception as e:
+        print(f"search failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
+def cmd_render(args):
+    """PR-4 Phase 1: render one page to Markdown (write-side).
+
+    Dry-run is the default; `--apply` flips it. Per-claim pages are OFF
+    by default in v1 (S-2 audit fix); pass `--include-claim-pages` to
+    opt in. Page data is read from the JSON file at `--from-json` (a
+    flat dict matching the renderer's dataclass).
+
+    In `--dry-run` mode the CLI does NOT open the corpus database and
+    does NOT touch the filesystem (matches `search --dry-run`).
+    """
+    _apply_data_root_override(args)
+
+    # Pre-flight: reject --kind=claim without opt-in (S-2 audit fix).
+    if args.kind == "claim" and not args.include_claim_pages:
+        print("claim pages are OFF by default in v1 (S-2 audit fix);"
+              " pass --include-claim-pages to opt in",
+              file=sys.stderr)
+        return EXIT_USAGE
+
+    if args.dry_run:
+        # Pure plan: print the would-be path and exit. No DB, no FS.
+        import dataclasses
+        from houchen_render import (
+            ClaimSummary, ConceptPage, ConceptSource, CoveragePage,
+            ForecastPage, ReviewQueuePage, VideoPage,
+        )
+        with open(args.from_json, encoding="utf-8") as fh:
+            data = json.load(fh)
+        kind = args.kind
+        cls = {
+            "video": VideoPage, "concept": ConceptPage,
+            "forecast": ForecastPage, "review_queue": ReviewQueuePage,
+            "coverage": CoveragePage,
+        }.get(kind)
+        if cls is None:
+            print(f"unsupported page kind for render-from-json: {kind!r}",
+                  file=sys.stderr)
+            return EXIT_USAGE
+        nested = {
+            "claims": ClaimSummary,
+            "canonical_definition_sources": ConceptSource,
+            "speaker_use_sources": ConceptSource,
+            "system_evaluations": ClaimSummary,
+        }
+        for k, dccls in nested.items():
+            if k in data and isinstance(data[k], list):
+                data[k] = [dccls(**item) for item in data[k]]
+        page_obj = cls(**data)
+        markdown = houchen_render.render_page(kind, page_obj)
+        plan = {
+            "dry_run": True,
+            "kind": kind, "page_key": args.page_key,
+            "render_sha256": houchen_render.render_sha256(markdown),
+            "note": "render --dry-run: no file written, no row recorded",
+        }
+        print(json.dumps(plan, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+
+    try:
+        conn = houchen_store.connect()
+    except houchen_paths.DataRootError as e:
+        print(f"data-root error: {e}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    try:
+        # Page data is supplied as JSON; the caller maps it to the
+        # correct dataclass for the chosen kind.
+        import dataclasses
+        from houchen_render import (
+            ClaimSummary, ConceptPage, ConceptSource, CoveragePage,
+            ForecastPage, ReviewQueuePage, VideoPage,
+        )
+        with open(args.from_json, encoding="utf-8") as fh:
+            data = json.load(fh)
+        kind = args.kind
+        cls = {
+            "video": VideoPage, "concept": ConceptPage,
+            "forecast": ForecastPage, "review_queue": ReviewQueuePage,
+            "coverage": CoveragePage,
+        }.get(kind)
+        if cls is None:
+            print(f"unsupported page kind for render-from-json: {kind!r}",
+                  file=sys.stderr)
+            return EXIT_USAGE
+        # Convert dict-of-dict substructures (e.g. claims / sources)
+        # to their dataclasses if present.
+        nested = {
+            "claims": ClaimSummary,
+            "canonical_definition_sources": ConceptSource,
+            "speaker_use_sources": ConceptSource,
+            "system_evaluations": ClaimSummary,
+        }
+        for k, dccls in nested.items():
+            if k in data and isinstance(data[k], list):
+                data[k] = [dccls(**item) for item in data[k]]
+        page_obj = cls(**data)
+        summary = houchen_runner.run_render(
+            conn, kind=kind, page_key=args.page_key, page_obj=page_obj,
+            include_claim_pages=args.include_claim_pages,
+            dry_run=args.dry_run,
+        )
+        print(json.dumps(summary, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    except ValueError as e:
+        print(f"render rejected: {e}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as e:
+        print(f"render failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
+def cmd_publish(args):
+    """PR-4 Phase 1: PUT → GET → SHA via VaultWriter (write-side).
+
+    Dry-run is the default. Real PUT requires BOTH `--apply` AND
+    `--operator-authorized`; missing either exits 2 with a remediation
+    message. A `DryRunVaultWriter` records every call when
+    `--dry-run` is set; the test surface swaps in `FakeVaultWriter`.
+
+    In `--dry-run` mode the CLI does NOT open the corpus database and
+    does NOT touch the filesystem (matches `search --dry-run`).
+    """
+    _apply_data_root_override(args)
+
+    if args.apply and not args.operator_authorized:
+        print("--apply requires --operator-authorized (audit gate)",
+              file=sys.stderr)
+        return EXIT_USAGE
+
+    if args.dry_run:
+        plan = {
+            "dry_run": True,
+            "apply": args.apply,
+            "operator_authorized": args.operator_authorized,
+            "vault_prefix": args.vault_prefix or
+                houchen_publish_paths.DEFAULT_VAULT_PREFIX,
+            "note": "publish --dry-run: no PUT/GET attempted, no row recorded",
+        }
+        print(json.dumps(plan, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+
+    try:
+        conn = houchen_store.connect()
+    except houchen_paths.DataRootError as e:
+        print(f"data-root error: {e}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    try:
+        vault_prefix = args.vault_prefix or \
+            houchen_publish_paths.DEFAULT_VAULT_PREFIX
+
+        # The CLI uses DryRunVaultWriter; tests inject FakeVaultWriter.
+        vault_writer = houchen_publisher.DryRunVaultWriter()
+
+        summary = houchen_runner.run_publish(
+            conn,
+            page_ids=args.page_id or None,
+            kind=args.kind or None,
+            vault_writer=vault_writer,
+            vault_prefix=vault_prefix,
+            dry_run=False,
+            apply=args.apply,
+            operator_authorized=args.operator_authorized,
+            actor=args.actor,
+        )
+        print(json.dumps(summary, sort_keys=True, ensure_ascii=False))
+        if summary.get("status") == "failed":
+            return EXIT_RUNTIME
+        if summary.get("status") == "partial":
+            return EXIT_PARTIAL
+        return EXIT_OK
+    except RuntimeError as e:
+        print(f"publish refused: {e}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as e:
+        print(f"publish failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="houchen_pipeline",
@@ -525,6 +756,45 @@ def build_parser():
     sub.add_parser("concept-seed", parents=[common],
                    help="PR-3: idempotent domain skeleton seed (audit F-1)")
 
+    ps = sub.add_parser("search", parents=[common],
+                        help="PR-4 Phase 0: read-only FTS5 MATCH search")
+    ps.add_argument("--kind", required=True,
+                    choices=["transcript", "claim", "concept", "concept_alias", "all"],
+                    help="Which FTS5 table to query")
+    ps.add_argument("--query", required=True, help="FTS5 MATCH expression")
+    ps.add_argument("--limit", type=_nonneg_int, default=20)
+
+    pr = sub.add_parser("render", parents=[common],
+                        help="PR-4 Phase 1: render a page to Markdown")
+    pr.add_argument("--kind", required=True,
+                    choices=["video", "concept", "forecast", "review_queue",
+                             "coverage", "claim"],
+                    help="Page kind to render (claim OFF by default)")
+    pr.add_argument("--page-key", required=True,
+                    help="Stable identifier for this page")
+    pr.add_argument("--from-json", required=True,
+                    help="Path to a JSON file with the page dataclass data")
+    pr.add_argument("--include-claim-pages", action="store_true",
+                    help="Opt in to claim pages (S-2 audit fix)")
+
+    pp = sub.add_parser("publish", parents=[common],
+                        help="PR-4 Phase 1: PUT → GET → SHA via VaultWriter")
+    pp.add_argument("--kind",
+                    choices=["video", "concept", "forecast", "review_queue",
+                             "coverage", "claim"],
+                    help="Limit to one page_kind (default = all)")
+    pp.add_argument("--page-id", action="append",
+                    help="Specific rendered_page_id (repeatable)")
+    pp.add_argument("--vault-prefix",
+                    help=f"Obsidian vault prefix (default "
+                         f"{houchen_publish_paths.DEFAULT_VAULT_PREFIX!r})")
+    pp.add_argument("--apply", action="store_true",
+                    help="Actually publish (default is dry-run)")
+    pp.add_argument("--operator-authorized", action="store_true",
+                    help="Required with --apply; records operator in summary")
+    pp.add_argument("--actor", default="cli",
+                    help="Operator actor string for the audit trail")
+
     sub.add_parser("status", parents=[common])
     pcov = sub.add_parser("coverage", parents=[common])
     pcov.add_argument("--markdown", action="store_true")
@@ -548,6 +818,12 @@ def main(argv=None):
         return cmd_validate(args)
     if args.cmd == "concept-seed":
         return cmd_concept_seed(args)
+    if args.cmd == "search":
+        return cmd_search(args)
+    if args.cmd == "render":
+        return cmd_render(args)
+    if args.cmd == "publish":
+        return cmd_publish(args)
     if args.cmd == "status":
         return cmd_status(args)
     if args.cmd == "coverage":
