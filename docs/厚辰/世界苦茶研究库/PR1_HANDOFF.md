@@ -524,3 +524,99 @@ out-of-scope items are in `reviews/PR3_DELIVERY_2026-08-24.md`.
 - 独立验收：`reviews/PR3_ACCEPTANCE_CURSOR_2026-08-24.md`；二次复验仍为 74 / 196 / 314 passed，PR-1 红线 0 漂移。
 - P2 backlog（非阻断）：补充「normalize → analyze → validate」后的宏观树 before/after 专用隔离 E2E（F-5 完整项）。
 - 本次用户已授权按 GIT-PR3 提交；不得 push、部署、安装调度、调用真模型或运行全频道分析。
+
+
+## 12. PR-4 — FTS5 + Obsidian Research Map (2026-08-24)
+
+### 12.1 Scope
+
+PR-4 closes the brief §10 (FTS5) and §11 (Obsidian) debt in two
+phases on the same branch:
+
+- **Phase 0 — FTS5 substrate**: 4 virtual tables (`transcript_fts`,
+  `claim_fts`, `concept_fts`, `concept_alias_fts`), 12 sync triggers,
+  `houchen_search.py` (FTS5 MATCH + JOIN provenance), `houchen_runner.run_search`,
+  `search` CLI, fixed-query benchmark.
+- **Phase 1 — Render + Publish**: 5 page kinds (video / concept /
+  forecast / review_queue / coverage), `houchen_render.py` (pure
+  Markdown templating), `houchen_publisher.py` (PUT → GET → SHA
+  verify + `DryRunVaultWriter`), `houchen_publish_paths.py`, `render`
+  and `publish` CLI subcommands, S-4 AST-based isolation guard.
+
+### 12.2 Audit corrections applied
+
+The plan audit (`reviews/PR4_PLAN_AUDIT_2026-08-24.md`) closed four
+issues; all four are reflected in the code:
+
+- **F-1 (blocking)** — `transcript_fts` does not store `video_id`
+  (`transcript_segment` has no such column). The trigger writes
+  `transcript_version_id` + ms + ordinal; `houchen_search.search_transcript`
+  JOINs `transcript_version` to resolve `video_id` at query time.
+- **F-2 (blocking doc)** — `data/store.db` SHA baseline =
+  `52c12c82d11f32c05ae6658aade5e20da1c1204966d386c2e05be516a5898ed7`
+  (PR-1 §9.5), NOT a git commit SHA.
+- **S-2** — Per-claim pages are **OFF by default in v1**. The `claim`
+  kind remains in `page_kind` CHECK so future opt-in is a CLI flag,
+  not a schema change. The CLI rejects `--kind=claim` without
+  `--include-claim-pages` (exit code 2).
+- **S-4** — A `test_pr4_publish_modules_do_not_import_macro_coupled`
+  guard walks the AST of every new module and the `publish`/`render`
+  CLI subcommands; any `import insight_publisher` /
+  `import store` / literal `data/store.db` outside docstrings fails
+  the suite.
+
+### 12.3 Module count: brief §7.7 ceiling
+
+PR-3 added 4 modules to reach 13 lib files. PR-4 adds 4 more:
+
+| Module | Reason for split |
+|---|---|
+| `houchen_search.py` | FTS5 MATCH + JOIN + benchmark; the `search` CLI is its only caller. |
+| `houchen_render.py` | Pure templating (5 page kinds); no I/O, no DB. |
+| `houchen_publisher.py` | VaultWriter protocol + ledger; never imports `lib/insight_publisher.py`. |
+| `houchen_publish_paths.py` | Researcher-side path resolution; keeps `houchen_paths.py` from absorbing the publish namespace. |
+
+**Total: 17 lib files** (PR-1: 5, PR-2: 4, PR-3: +4, PR-4: +4).
+Split justification: brief §7.7's "split when needed, document why"
+rule, mirrored from PR-3 §3.
+
+### 12.4 New schema surface (v4 increment)
+
+- `rendered_page(rendered_page_id, page_kind, page_key,
+  template_version, render_sha256, prompt_version, model_id,
+  created_at, attempt_id)` — UNIQUE
+  `(page_kind, page_key, template_version)`. `page_kind` CHECK
+  includes `'claim'` (kept for future opt-in; OFF by default).
+- `publish_record(publish_id, page_id, vault_path, vault_sha256,
+  status, error_class, detail, attempted_at, published_at,
+  attempt_id)` — UNIQUE `(page_id, vault_path)`. `status` CHECK
+  includes `'pending'`, `'put_ok'`, `'readback_ok'`, `'published'`,
+  `'failed'`.
+- `publish_run(run_id, started_at, finished_at, status, summary_json)`.
+
+`corpus_run.kind` widens to `'publish' | 'search' | 'render'` and
+`corpus_attempt.stage` mirrors the same three values; `outcome` widens
+to `'publish_failed' | 'search_failed' | 'render_failed'`. The
+widening is performed by `_recreate_with_widened_check` (PR-2 pattern).
+
+### 12.5 Test surface
+
+| Suite | Tests | Note |
+|---|---:|---|
+| `test_houchen_search.py` | 23 | FTS5 substrate, triggers, fixed query benchmark, search CLI surface. |
+| `test_houchen_render.py` | 18 | Determinism (SHA-identical re-render), layer separation, S-2 opt-in. |
+| `test_houchen_publisher.py` | 20 | PUT → GET → SHA happy path + 5 failure modes + counters + obsidian_index export. |
+| `test_houchen_schema.py` (delta) | +4 | v4 publish tables, CHECK, UNIQUE. |
+| `test_houchen_macro_isolation.py` (delta) | +1 | S-4 AST guard. |
+| `test_houchen_pipeline.py` (delta) | +4 | render/publish CLI smoke + S-2 enforcement + audit gate. |
+
+**PR-4 full regression: 384 passed** (PR-3 baseline 314 → PR-4 +70).
+
+### 12.6 Verdict
+
+**PR-4 ACCEPTED (Cursor 2026-08-24).**
+
+- 独立验收：`reviews/PR4_ACCEPTANCE_CURSOR_2026-08-24.md`；384 passed；F-1/F-2/S-2/S-4 闭环。
+- `data/store.db` SHA = `3c2ceda…`（⚠️ 再次 launchd 漂移，非 PR-4 引入；S-4 守卫确认未触碰）。
+- 下一步：`reviews/PR4_COMMIT_KICKOFF_2026-08-24.md`（commit → push → 开 PR）；INBOX `STATUS=DO`。
+- Live Obsidian PUT / `config/houchen_publish.env` 另开 kickoff。
