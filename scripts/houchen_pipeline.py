@@ -30,6 +30,7 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_THIS_DIR, "..", "lib"))
 
 import houchen_acquisition  # noqa: E402
+import houchen_concept  # noqa: E402
 import houchen_paths  # noqa: E402
 import houchen_runner  # noqa: E402
 import houchen_status  # noqa: E402
@@ -123,6 +124,9 @@ def _empty_status():
                      "tool_error": 0, "permanent_error": 0,
                      "raw_integrity_error": 0},
         "transcripts": {"normalized": 0, "pending_normalize": 0},
+        "claims": {"accepted": 0, "needs_review": 0, "rejected": 0, "proposed": 0},
+        "concepts": {"seed": 0, "proposed": 0, "canonical": 0, "deprecated": 0},
+        "analyze_scope": {"pending_analyze": 0, "analyzed": 0},
         "oldest_pending": None,
         "recent_errors_by_class": {},
     }
@@ -261,6 +265,9 @@ def cmd_coverage(args):
                    "by_collection": {}, "by_availability": {},
                    "by_content_kind": {}, "caption_outcomes": _empty_status()["captions"],
                    "transcript_state": _empty_status()["transcripts"],
+                   "claim_outcomes": _empty_status()["claims"],
+                   "concept_state": _empty_status()["concepts"],
+                   "analyze_scope": _empty_status()["analyze_scope"],
                    "catalog_partial": []}
         elif args.markdown:
             print(houchen_status.coverage_markdown(conn))
@@ -331,6 +338,124 @@ def _cmd_normalize_dry_run(args):
     return EXIT_OK
 
 
+def cmd_analyze(args):
+    """PR-3: build analysis INPUT bundles, invoke provider (default fake), and
+    persist the per-run derived JSON. Idempotent via the UNIQUE-style
+    `corpus_attempt(stage='analyze')` + content-addressed derived JSON."""
+    video_ids = [args.video_id] if args.video_id else None
+    if args.dry_run:
+        _apply_data_root_override(args)
+        conn = _open_readonly_db(args)
+        scope = []
+        if conn is not None:
+            try:
+                scope = houchen_runner._select_analyze_scope(
+                    conn, video_ids=video_ids, pending_only=args.pending)
+            finally:
+                conn.close()
+            if args.limit is not None:
+                scope = list(scope)[:args.limit]
+        plan = {
+            "scope_count": len(scope),
+            "scope": scope[:20],
+            "provider": args.provider,
+            "prompt_version": houchen_runner.DEFAULT_PROMPT_VERSION,
+            "schema_version": houchen_runner.DEFAULT_SCHEMA_VERSION,
+            "dry_run": True,
+        }
+        print(json.dumps(plan, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    conn = _open_write_db(args)
+    try:
+        summary = houchen_runner.run_analyze(
+            conn, video_ids=video_ids, pending_only=args.pending,
+            limit=args.limit, dry_run=False,
+            provider=args.provider, model=args.model,
+        )
+        print(json.dumps(summary, sort_keys=True, ensure_ascii=False))
+        if summary.get("status") == "failed":
+            return EXIT_RUNTIME
+        if summary.get("status") == "partial":
+            return EXIT_PARTIAL
+        return EXIT_OK
+    except Exception as e:
+        print(f"analyze failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
+def cmd_validate(args):
+    """PR-3: read each analyzed run's artifact, run the hard validator, and
+    write claim/concept/etc. rows. Per-run idempotent on analysis_run_id."""
+    if args.dry_run:
+        # dry-run: open read-only, count videos with a successful analyze.
+        _apply_data_root_override(args)
+        conn = _open_readonly_db(args)
+        scope_count = 0
+        if conn is not None:
+            try:
+                rows = conn.execute(
+                    "SELECT COUNT(DISTINCT ca.video_id) FROM corpus_attempt ca"
+                    " JOIN corpus_run cr ON cr.run_id = ca.run_id"
+                    " WHERE ca.stage='analyze' AND ca.outcome='success'"
+                    "   AND cr.status='success'").fetchone()
+                scope_count = rows[0] or 0
+            finally:
+                conn.close()
+        plan = {"scope_count": scope_count, "dry_run": True}
+        print(json.dumps(plan, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    conn = _open_write_db(args)
+    try:
+        video_ids = [args.video_id] if args.video_id else None
+        summary = houchen_runner.run_validate(
+            conn, video_ids=video_ids, limit=args.limit, dry_run=False)
+        print(json.dumps(summary, sort_keys=True, ensure_ascii=False))
+        if summary.get("status") == "failed":
+            return EXIT_RUNTIME
+        if summary.get("status") == "partial":
+            return EXIT_PARTIAL
+        return EXIT_OK
+    except Exception as e:
+        print(f"validate failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
+def cmd_concept_seed(args):
+    """PR-3: idempotently insert the 7-domain skeleton (audit F-1)."""
+    if args.dry_run:
+        _apply_data_root_override(args)
+        conn = _open_readonly_db(args)
+        existing = 0
+        if conn is not None:
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM domain").fetchone()
+                existing = row[0] or 0
+            finally:
+                conn.close()
+        plan = {
+            "dry_run": True,
+            "existing_domain_rows": existing,
+            "skeleton_size": len(houchen_concept.DEFAULT_DOMAIN_SKELETON),
+        }
+        print(json.dumps(plan, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    conn = _open_write_db(args)
+    try:
+        summary = houchen_runner.run_concept_seed(conn, dry_run=False)
+        print(json.dumps(summary, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    except Exception as e:
+        print(f"concept-seed failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="houchen_pipeline",
@@ -380,6 +505,26 @@ def build_parser():
     pn.add_argument("--no-pending", dest="pending", action="store_false")
     pn.add_argument("--limit", type=_nonneg_int, default=None)
 
+    pa = sub.add_parser("analyze", parents=[common],
+                        help="PR-3: build INPUT bundles + invoke provider (default fake)")
+    pa.add_argument("--video-id")
+    pa.add_argument("--pending", action="store_true", default=True)
+    pa.add_argument("--no-pending", dest="pending", action="store_false")
+    pa.add_argument("--limit", type=_nonneg_int, default=None)
+    pa.add_argument("--provider", default="fake",
+                    choices=["fake", "anthropic", "deepseek", "minimax"],
+                    help="Model provider (default 'fake' = offline)")
+    pa.add_argument("--model", default="",
+                    help="Model identifier (recorded in artifact; not used by fake)")
+
+    pv = sub.add_parser("validate", parents=[common],
+                        help="PR-3: hard-validate each analyze artifact and write claim rows")
+    pv.add_argument("--video-id")
+    pv.add_argument("--limit", type=_nonneg_int, default=None)
+
+    sub.add_parser("concept-seed", parents=[common],
+                   help="PR-3: idempotent domain skeleton seed (audit F-1)")
+
     sub.add_parser("status", parents=[common])
     pcov = sub.add_parser("coverage", parents=[common])
     pcov.add_argument("--markdown", action="store_true")
@@ -397,6 +542,12 @@ def main(argv=None):
         return cmd_fetch_captions(args)
     if args.cmd == "normalize":
         return cmd_normalize(args)
+    if args.cmd == "analyze":
+        return cmd_analyze(args)
+    if args.cmd == "validate":
+        return cmd_validate(args)
+    if args.cmd == "concept-seed":
+        return cmd_concept_seed(args)
     if args.cmd == "status":
         return cmd_status(args)
     if args.cmd == "coverage":

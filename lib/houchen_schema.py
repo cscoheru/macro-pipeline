@@ -239,7 +239,7 @@ _V1_STATEMENTS = [
        BEGIN SELECT RAISE(ABORT, 'schema_version is append-only: DELETE forbidden'); END""",
     """CREATE TABLE IF NOT EXISTS corpus_run (
          run_id TEXT PRIMARY KEY,
-         kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize')),
+         kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed')),
          started_at TEXT NOT NULL,
          finished_at TEXT,
          status TEXT NOT NULL CHECK(status IN ('running','success','partial','failed')),
@@ -307,11 +307,12 @@ _V1_STATEMENTS = [
          run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
          stage TEXT NOT NULL CHECK(stage IN ('catalog','subtitle_inventory',
                                               'subtitle_download','subtitle_parse',
-                                              'freeze','normalize')),
+                                              'freeze','normalize','analyze','validate','concept_seed')),
          outcome TEXT NOT NULL CHECK(outcome IN ('success','skipped','missing',
                                                  'auth_required','unavailable',
                                                  'retryable','tool_error',
                                                  'permanent_error','raw_integrity_error',
+                                                 'analyze_failed','validate_failed','concept_seed_failed',
                                                  'normalize_failed')),
          error_class TEXT,
          detail TEXT,
@@ -465,6 +466,560 @@ def install_v2(conn) -> None:
 
 
 # ---------------------------------------------------------------------------
+# DDL — v3 (PR-3: atomic claim extraction + concept seeding)
+# ---------------------------------------------------------------------------
+
+# Brief §7.2 — 13 new tables for the intellectual model + provenance. The
+# analyzer writes into these after the hard validator approves the candidates
+# (brief §9.3). The v3 migration also widens corpus_run.kind and
+# corpus_attempt.stage / outcome CHECKs — handled by the migration runtime
+# (rename → create → copy → drop → index), same pattern as PR-2 v2.
+
+_SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS domain (
+  slug TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS concept (
+  concept_id TEXT PRIMARY KEY,
+  canonical_name TEXT NOT NULL,
+  definition TEXT,
+  status TEXT NOT NULL CHECK(status IN ('proposed','canonical','deprecated')),
+  origin TEXT NOT NULL CHECK(origin IN ('seed','corpus','human')),
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_concept_status ON concept(status);
+
+CREATE TABLE IF NOT EXISTS concept_alias (
+  alias_id TEXT PRIMARY KEY,
+  concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+  alias TEXT NOT NULL,
+  source TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (concept_id, alias)
+);
+CREATE INDEX IF NOT EXISTS idx_concept_alias_concept ON concept_alias(concept_id);
+
+CREATE TABLE IF NOT EXISTS concept_domain (
+  concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+  domain_slug TEXT NOT NULL REFERENCES domain(slug),
+  PRIMARY KEY (concept_id, domain_slug)
+);
+
+CREATE TABLE IF NOT EXISTS concept_source (
+  concept_source_id TEXT PRIMARY KEY,
+  concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+  transcript_version_id TEXT NOT NULL REFERENCES transcript_version(transcript_version_id),
+  segment_start_ordinal INTEGER NOT NULL CHECK(segment_start_ordinal >= 0),
+  segment_end_ordinal INTEGER NOT NULL CHECK(segment_end_ordinal >= segment_start_ordinal),
+  start_ms INTEGER NOT NULL CHECK(start_ms >= 0),
+  end_ms INTEGER NOT NULL CHECK(end_ms >= start_ms),
+  exact_quote TEXT NOT NULL CHECK(exact_quote != ''),
+  timestamp_url TEXT NOT NULL,
+  raw_caption_sha256 TEXT NOT NULL,
+  source_role TEXT NOT NULL CHECK(source_role IN ('canonical_definition','usage','speaker_definition')),
+  analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id)
+);
+CREATE INDEX IF NOT EXISTS idx_concept_source_concept ON concept_source(concept_id);
+
+CREATE TABLE IF NOT EXISTS claim (
+  claim_id TEXT PRIMARY KEY,
+  video_id TEXT NOT NULL REFERENCES video(video_id),
+  claim_text TEXT NOT NULL CHECK(claim_text != ''),
+  claim_type TEXT NOT NULL CHECK(claim_type IN ('definition','descriptive','causal','predictive','normative','interpretive')),
+  speaker TEXT,
+  layer TEXT NOT NULL CHECK(layer IN ('speaker_statement','speaker_reasoning','system_evaluation')),
+  temporal_scope TEXT,
+  modality TEXT,
+  status TEXT NOT NULL CHECK(status IN ('proposed','accepted','needs_review','rejected')),
+  analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_claim_video ON claim(video_id);
+CREATE INDEX IF NOT EXISTS idx_claim_status ON claim(status);
+
+CREATE TABLE IF NOT EXISTS claim_source (
+  claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+  transcript_version_id TEXT NOT NULL REFERENCES transcript_version(transcript_version_id),
+  segment_start_ordinal INTEGER NOT NULL CHECK(segment_start_ordinal >= 0),
+  segment_end_ordinal INTEGER NOT NULL CHECK(segment_end_ordinal >= segment_start_ordinal),
+  start_ms INTEGER NOT NULL CHECK(start_ms >= 0),
+  end_ms INTEGER NOT NULL CHECK(end_ms >= start_ms),
+  exact_quote TEXT NOT NULL CHECK(exact_quote != ''),
+  timestamp_url TEXT NOT NULL,
+  raw_caption_sha256 TEXT NOT NULL,
+  PRIMARY KEY (claim_id, segment_start_ordinal)
+);
+CREATE INDEX IF NOT EXISTS idx_claim_source_tv ON claim_source(transcript_version_id);
+
+CREATE TABLE IF NOT EXISTS claim_concept (
+  claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+  concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+  relation TEXT NOT NULL CHECK(relation IN ('defines','uses','exemplifies','qualifies','relates')),
+  analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
+  PRIMARY KEY (claim_id, concept_id)
+);
+
+CREATE TABLE IF NOT EXISTS reasoning_edge (
+  from_claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+  to_claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+  relation TEXT NOT NULL CHECK(relation IN ('supports','causes','qualifies','contradicts','predicts','defines','exemplifies')),
+  layer TEXT NOT NULL CHECK(layer IN ('speaker_reasoning','system_evaluation')),
+  source_id TEXT,
+  transcript_version_id TEXT REFERENCES transcript_version(transcript_version_id),
+  exact_quote TEXT,
+  start_ms INTEGER CHECK(start_ms >= 0),
+  end_ms INTEGER CHECK(end_ms >= start_ms),
+  timestamp_url TEXT,
+  analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
+  PRIMARY KEY (from_claim_id, to_claim_id, relation)
+);
+CREATE INDEX IF NOT EXISTS idx_reasoning_edge_from ON reasoning_edge(from_claim_id);
+
+CREATE TABLE IF NOT EXISTS evidence_mention (
+  mention_id TEXT PRIMARY KEY,
+  video_id TEXT NOT NULL REFERENCES video(video_id),
+  transcript_version_id TEXT REFERENCES transcript_version(transcript_version_id),
+  segment_ordinal INTEGER CHECK(segment_ordinal >= 0),
+  text TEXT NOT NULL CHECK(text != ''),
+  mention_type TEXT NOT NULL CHECK(mention_type IN ('data','example','analogy','reference','quote_external')),
+  external_entity_candidate TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_mention_video ON evidence_mention(video_id);
+
+CREATE TABLE IF NOT EXISTS external_evidence (
+  evidence_id TEXT PRIMARY KEY,
+  source_url TEXT,
+  local_data_key TEXT,
+  publisher TEXT NOT NULL,
+  observed_period TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  grade TEXT CHECK(grade IN ('A','B','C','D'))
+);
+
+CREATE TABLE IF NOT EXISTS evaluation (
+  evaluation_id TEXT PRIMARY KEY,
+  target_kind TEXT NOT NULL CHECK(target_kind IN ('claim','reasoning_edge')),
+  target_id TEXT NOT NULL,
+  evaluator TEXT NOT NULL CHECK(evaluator IN ('human','model','macro_bridge')),
+  as_of TEXT,
+  verdict TEXT CHECK(verdict IN ('confirmed','contested','partial','pending')),
+  reasoning TEXT,
+  status TEXT CHECK(status IN ('draft','final','superseded')),
+  external_evidence_id TEXT REFERENCES external_evidence(evidence_id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_target ON evaluation(target_kind, target_id);
+
+CREATE TABLE IF NOT EXISTS forecast (
+  forecast_id TEXT PRIMARY KEY,
+  claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+  time_window_start TEXT,
+  time_window_end TEXT,
+  outcome_condition TEXT NOT NULL CHECK(outcome_condition != ''),
+  status TEXT NOT NULL DEFAULT 'candidate'
+      CHECK(status IN ('candidate','verified_hit','failed','superseded','withdrawn')),
+  evaluated_at TEXT,
+  evaluated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_forecast_claim ON forecast(claim_id);
+"""
+
+
+# v3 DDL — one statement per table/index for atomic execution.
+_V3_STATEMENTS = [
+    """CREATE TABLE IF NOT EXISTS domain (
+         slug TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         description TEXT
+       )""",
+    """CREATE TABLE IF NOT EXISTS concept (
+         concept_id TEXT PRIMARY KEY,
+         canonical_name TEXT NOT NULL,
+         definition TEXT,
+         status TEXT NOT NULL CHECK(status IN ('proposed','canonical','deprecated')),
+         origin TEXT NOT NULL CHECK(origin IN ('seed','corpus','human')),
+         first_seen_at TEXT NOT NULL,
+         last_seen_at TEXT NOT NULL
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_concept_status ON concept(status)""",
+    """CREATE TABLE IF NOT EXISTS concept_alias (
+         alias_id TEXT PRIMARY KEY,
+         concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+         alias TEXT NOT NULL,
+         source TEXT,
+         created_at TEXT NOT NULL,
+         UNIQUE (concept_id, alias)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_concept_alias_concept ON concept_alias(concept_id)""",
+    """CREATE TABLE IF NOT EXISTS concept_domain (
+         concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+         domain_slug TEXT NOT NULL REFERENCES domain(slug),
+         PRIMARY KEY (concept_id, domain_slug)
+       )""",
+    """CREATE TABLE IF NOT EXISTS concept_source (
+         concept_source_id TEXT PRIMARY KEY,
+         concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+         transcript_version_id TEXT NOT NULL REFERENCES transcript_version(transcript_version_id),
+         segment_start_ordinal INTEGER NOT NULL CHECK(segment_start_ordinal >= 0),
+         segment_end_ordinal INTEGER NOT NULL CHECK(segment_end_ordinal >= segment_start_ordinal),
+         start_ms INTEGER NOT NULL CHECK(start_ms >= 0),
+         end_ms INTEGER NOT NULL CHECK(end_ms >= start_ms),
+         exact_quote TEXT NOT NULL CHECK(exact_quote != ''),
+         timestamp_url TEXT NOT NULL,
+         raw_caption_sha256 TEXT NOT NULL,
+         source_role TEXT NOT NULL CHECK(source_role IN ('canonical_definition','usage','speaker_definition')),
+         analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_concept_source_concept ON concept_source(concept_id)""",
+    """CREATE TABLE IF NOT EXISTS claim (
+         claim_id TEXT PRIMARY KEY,
+         video_id TEXT NOT NULL REFERENCES video(video_id),
+         claim_text TEXT NOT NULL CHECK(claim_text != ''),
+         claim_type TEXT NOT NULL CHECK(claim_type IN ('definition','descriptive','causal','predictive','normative','interpretive')),
+         speaker TEXT,
+         layer TEXT NOT NULL CHECK(layer IN ('speaker_statement','speaker_reasoning','system_evaluation')),
+         temporal_scope TEXT,
+         modality TEXT,
+         status TEXT NOT NULL CHECK(status IN ('proposed','accepted','needs_review','rejected')),
+         analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
+         created_at TEXT NOT NULL
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_claim_video ON claim(video_id)""",
+    """CREATE INDEX IF NOT EXISTS idx_claim_status ON claim(status)""",
+    """CREATE TABLE IF NOT EXISTS claim_source (
+         claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+         transcript_version_id TEXT NOT NULL REFERENCES transcript_version(transcript_version_id),
+         segment_start_ordinal INTEGER NOT NULL CHECK(segment_start_ordinal >= 0),
+         segment_end_ordinal INTEGER NOT NULL CHECK(segment_end_ordinal >= segment_start_ordinal),
+         start_ms INTEGER NOT NULL CHECK(start_ms >= 0),
+         end_ms INTEGER NOT NULL CHECK(end_ms >= start_ms),
+         exact_quote TEXT NOT NULL CHECK(exact_quote != ''),
+         timestamp_url TEXT NOT NULL,
+         raw_caption_sha256 TEXT NOT NULL,
+         PRIMARY KEY (claim_id, segment_start_ordinal)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_claim_source_tv ON claim_source(transcript_version_id)""",
+    """CREATE TABLE IF NOT EXISTS claim_concept (
+         claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+         concept_id TEXT NOT NULL REFERENCES concept(concept_id),
+         relation TEXT NOT NULL CHECK(relation IN ('defines','uses','exemplifies','qualifies','relates')),
+         analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
+         PRIMARY KEY (claim_id, concept_id)
+       )""",
+    """CREATE TABLE IF NOT EXISTS reasoning_edge (
+         from_claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+         to_claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+         relation TEXT NOT NULL CHECK(relation IN ('supports','causes','qualifies','contradicts','predicts','defines','exemplifies')),
+         layer TEXT NOT NULL CHECK(layer IN ('speaker_reasoning','system_evaluation')),
+         source_id TEXT,
+         transcript_version_id TEXT REFERENCES transcript_version(transcript_version_id),
+         exact_quote TEXT,
+         start_ms INTEGER CHECK(start_ms >= 0),
+         end_ms INTEGER CHECK(end_ms >= start_ms),
+         timestamp_url TEXT,
+         analysis_run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
+         PRIMARY KEY (from_claim_id, to_claim_id, relation)
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_reasoning_edge_from ON reasoning_edge(from_claim_id)""",
+    """CREATE TABLE IF NOT EXISTS evidence_mention (
+         mention_id TEXT PRIMARY KEY,
+         video_id TEXT NOT NULL REFERENCES video(video_id),
+         transcript_version_id TEXT REFERENCES transcript_version(transcript_version_id),
+         segment_ordinal INTEGER CHECK(segment_ordinal >= 0),
+         text TEXT NOT NULL CHECK(text != ''),
+         mention_type TEXT NOT NULL CHECK(mention_type IN ('data','example','analogy','reference','quote_external')),
+         external_entity_candidate TEXT,
+         created_at TEXT NOT NULL
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_evidence_mention_video ON evidence_mention(video_id)""",
+    """CREATE TABLE IF NOT EXISTS external_evidence (
+         evidence_id TEXT PRIMARY KEY,
+         source_url TEXT,
+         local_data_key TEXT,
+         publisher TEXT NOT NULL,
+         observed_period TEXT NOT NULL,
+         fetched_at TEXT NOT NULL,
+         content_sha256 TEXT NOT NULL,
+         grade TEXT CHECK(grade IN ('A','B','C','D'))
+       )""",
+    """CREATE TABLE IF NOT EXISTS evaluation (
+         evaluation_id TEXT PRIMARY KEY,
+         target_kind TEXT NOT NULL CHECK(target_kind IN ('claim','reasoning_edge')),
+         target_id TEXT NOT NULL,
+         evaluator TEXT NOT NULL CHECK(evaluator IN ('human','model','macro_bridge')),
+         as_of TEXT,
+         verdict TEXT CHECK(verdict IN ('confirmed','contested','partial','pending')),
+         reasoning TEXT,
+         status TEXT CHECK(status IN ('draft','final','superseded')),
+         external_evidence_id TEXT REFERENCES external_evidence(evidence_id),
+         created_at TEXT NOT NULL
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_evaluation_target ON evaluation(target_kind, target_id)""",
+    """CREATE TABLE IF NOT EXISTS forecast (
+         forecast_id TEXT PRIMARY KEY,
+         claim_id TEXT NOT NULL REFERENCES claim(claim_id),
+         time_window_start TEXT,
+         time_window_end TEXT,
+         outcome_condition TEXT NOT NULL CHECK(outcome_condition != ''),
+         status TEXT NOT NULL DEFAULT 'candidate'
+             CHECK(status IN ('candidate','verified_hit','failed','superseded','withdrawn')),
+         evaluated_at TEXT,
+         evaluated_by TEXT
+       )""",
+    """CREATE INDEX IF NOT EXISTS idx_forecast_claim ON forecast(claim_id)""",
+]
+
+
+# Exact v3 column shape — mirrors v2's pattern.
+_V3_COLUMNS = {
+    "domain": [
+        ("slug", "TEXT", 0, 1),
+        ("name", "TEXT", 1, 0),
+        ("description", "TEXT", 0, 0),
+    ],
+    "concept": [
+        ("concept_id", "TEXT", 0, 1),
+        ("canonical_name", "TEXT", 1, 0),
+        ("definition", "TEXT", 0, 0),
+        ("status", "TEXT", 1, 0),
+        ("origin", "TEXT", 1, 0),
+        ("first_seen_at", "TEXT", 1, 0),
+        ("last_seen_at", "TEXT", 1, 0),
+    ],
+    "concept_alias": [
+        ("alias_id", "TEXT", 0, 1),
+        ("concept_id", "TEXT", 1, 0),
+        ("alias", "TEXT", 1, 0),
+        ("source", "TEXT", 0, 0),
+        ("created_at", "TEXT", 1, 0),
+    ],
+    "concept_domain": [
+        ("concept_id", "TEXT", 1, 1),
+        ("domain_slug", "TEXT", 1, 2),
+    ],
+    "concept_source": [
+        ("concept_source_id", "TEXT", 0, 1),
+        ("concept_id", "TEXT", 1, 0),
+        ("transcript_version_id", "TEXT", 1, 0),
+        ("segment_start_ordinal", "INTEGER", 1, 0),
+        ("segment_end_ordinal", "INTEGER", 1, 0),
+        ("start_ms", "INTEGER", 1, 0),
+        ("end_ms", "INTEGER", 1, 0),
+        ("exact_quote", "TEXT", 1, 0),
+        ("timestamp_url", "TEXT", 1, 0),
+        ("raw_caption_sha256", "TEXT", 1, 0),
+        ("source_role", "TEXT", 1, 0),
+        ("analysis_run_id", "TEXT", 1, 0),
+    ],
+    "claim": [
+        ("claim_id", "TEXT", 0, 1),
+        ("video_id", "TEXT", 1, 0),
+        ("claim_text", "TEXT", 1, 0),
+        ("claim_type", "TEXT", 1, 0),
+        ("speaker", "TEXT", 0, 0),
+        ("layer", "TEXT", 1, 0),
+        ("temporal_scope", "TEXT", 0, 0),
+        ("modality", "TEXT", 0, 0),
+        ("status", "TEXT", 1, 0),
+        ("analysis_run_id", "TEXT", 1, 0),
+        ("created_at", "TEXT", 1, 0),
+    ],
+    "claim_source": [
+        ("claim_id", "TEXT", 1, 1),
+        ("transcript_version_id", "TEXT", 1, 0),
+        ("segment_start_ordinal", "INTEGER", 1, 2),
+        ("segment_end_ordinal", "INTEGER", 1, 0),
+        ("start_ms", "INTEGER", 1, 0),
+        ("end_ms", "INTEGER", 1, 0),
+        ("exact_quote", "TEXT", 1, 0),
+        ("timestamp_url", "TEXT", 1, 0),
+        ("raw_caption_sha256", "TEXT", 1, 0),
+    ],
+    "claim_concept": [
+        ("claim_id", "TEXT", 1, 1),
+        ("concept_id", "TEXT", 1, 2),
+        ("relation", "TEXT", 1, 0),
+        ("analysis_run_id", "TEXT", 1, 0),
+    ],
+    "reasoning_edge": [
+        ("from_claim_id", "TEXT", 1, 1),
+        ("to_claim_id", "TEXT", 1, 2),
+        ("relation", "TEXT", 1, 3),
+        ("layer", "TEXT", 1, 0),
+        ("source_id", "TEXT", 0, 0),
+        ("transcript_version_id", "TEXT", 0, 0),
+        ("exact_quote", "TEXT", 0, 0),
+        ("start_ms", "INTEGER", 0, 0),
+        ("end_ms", "INTEGER", 0, 0),
+        ("timestamp_url", "TEXT", 0, 0),
+        ("analysis_run_id", "TEXT", 1, 0),
+    ],
+    "evidence_mention": [
+        ("mention_id", "TEXT", 0, 1),
+        ("video_id", "TEXT", 1, 0),
+        ("transcript_version_id", "TEXT", 0, 0),
+        ("segment_ordinal", "INTEGER", 0, 0),
+        ("text", "TEXT", 1, 0),
+        ("mention_type", "TEXT", 1, 0),
+        ("external_entity_candidate", "TEXT", 0, 0),
+        ("created_at", "TEXT", 1, 0),
+    ],
+    "external_evidence": [
+        ("evidence_id", "TEXT", 0, 1),
+        ("source_url", "TEXT", 0, 0),
+        ("local_data_key", "TEXT", 0, 0),
+        ("publisher", "TEXT", 1, 0),
+        ("observed_period", "TEXT", 1, 0),
+        ("fetched_at", "TEXT", 1, 0),
+        ("content_sha256", "TEXT", 1, 0),
+        ("grade", "TEXT", 0, 0),
+    ],
+    "evaluation": [
+        ("evaluation_id", "TEXT", 0, 1),
+        ("target_kind", "TEXT", 1, 0),
+        ("target_id", "TEXT", 1, 0),
+        ("evaluator", "TEXT", 1, 0),
+        ("as_of", "TEXT", 0, 0),
+        ("verdict", "TEXT", 0, 0),
+        ("reasoning", "TEXT", 0, 0),
+        ("status", "TEXT", 0, 0),
+        ("external_evidence_id", "TEXT", 0, 0),
+        ("created_at", "TEXT", 1, 0),
+    ],
+    "forecast": [
+        ("forecast_id", "TEXT", 0, 1),
+        ("claim_id", "TEXT", 1, 0),
+        ("time_window_start", "TEXT", 0, 0),
+        ("time_window_end", "TEXT", 0, 0),
+        ("outcome_condition", "TEXT", 1, 0),
+        ("status", "TEXT", 1, 0),
+        ("evaluated_at", "TEXT", 0, 0),
+        ("evaluated_by", "TEXT", 0, 0),
+    ],
+}
+
+# table -> list of (from_column, referenced_table, referenced_column)
+_V3_FKS = {
+    "concept_alias": [("concept_id", "concept", "concept_id")],
+    "concept_domain": [
+        ("concept_id", "concept", "concept_id"),
+        ("domain_slug", "domain", "slug"),
+    ],
+    "concept_source": [
+        ("concept_id", "concept", "concept_id"),
+        ("transcript_version_id", "transcript_version", "transcript_version_id"),
+        ("analysis_run_id", "corpus_run", "run_id"),
+    ],
+    "claim": [
+        ("video_id", "video", "video_id"),
+        ("analysis_run_id", "corpus_run", "run_id"),
+    ],
+    "claim_source": [
+        ("claim_id", "claim", "claim_id"),
+        ("transcript_version_id", "transcript_version", "transcript_version_id"),
+    ],
+    "claim_concept": [
+        ("claim_id", "claim", "claim_id"),
+        ("concept_id", "concept", "concept_id"),
+        ("analysis_run_id", "corpus_run", "run_id"),
+    ],
+    "reasoning_edge": [
+        ("from_claim_id", "claim", "claim_id"),
+        ("to_claim_id", "claim", "claim_id"),
+        ("transcript_version_id", "transcript_version", "transcript_version_id"),
+        ("analysis_run_id", "corpus_run", "run_id"),
+    ],
+    "evidence_mention": [
+        ("video_id", "video", "video_id"),
+        ("transcript_version_id", "transcript_version", "transcript_version_id"),
+    ],
+    "evaluation": [
+        ("external_evidence_id", "external_evidence", "evidence_id"),
+    ],
+}
+
+# (index_name, table) -> (unique_flag, [columns])
+_V3_INDEX_SPEC = {
+    ("idx_concept_status", "concept"): (0, ["status"]),
+    ("idx_concept_alias_concept", "concept_alias"): (0, ["concept_id"]),
+    ("idx_concept_source_concept", "concept_source"): (0, ["concept_id"]),
+    ("idx_claim_video", "claim"): (0, ["video_id"]),
+    ("idx_claim_status", "claim"): (0, ["status"]),
+    ("idx_claim_source_tv", "claim_source"): (0, ["transcript_version_id"]),
+    ("idx_reasoning_edge_from", "reasoning_edge"): (0, ["from_claim_id"]),
+    ("idx_evidence_mention_video", "evidence_mention"): (0, ["video_id"]),
+    ("idx_evaluation_target", "evaluation"): (0, ["target_kind", "target_id"]),
+    ("idx_forecast_claim", "forecast"): (0, ["claim_id"]),
+}
+
+# table -> expected CHECK expressions (whitespace-normalized).
+_V3_CHECKS = {
+    "concept": [
+        "status IN ('proposed','canonical','deprecated')",
+        "origin IN ('seed','corpus','human')",
+    ],
+    "concept_source": [
+        "segment_start_ordinal >= 0",
+        "segment_end_ordinal >= segment_start_ordinal",
+        "start_ms >= 0",
+        "end_ms >= start_ms",
+        "exact_quote != ''",
+        "source_role IN ('canonical_definition','usage','speaker_definition')",
+    ],
+    "claim": [
+        "claim_text != ''",
+        "claim_type IN ('definition','descriptive','causal','predictive','normative','interpretive')",
+        "layer IN ('speaker_statement','speaker_reasoning','system_evaluation')",
+        "status IN ('proposed','accepted','needs_review','rejected')",
+    ],
+    "claim_source": [
+        "segment_start_ordinal >= 0",
+        "segment_end_ordinal >= segment_start_ordinal",
+        "start_ms >= 0",
+        "end_ms >= start_ms",
+        "exact_quote != ''",
+    ],
+    "claim_concept": [
+        "relation IN ('defines','uses','exemplifies','qualifies','relates')",
+    ],
+    "reasoning_edge": [
+        "relation IN ('supports','causes','qualifies','contradicts','predicts','defines','exemplifies')",
+        "layer IN ('speaker_reasoning','system_evaluation')",
+    ],
+    "evidence_mention": [
+        "mention_type IN ('data','example','analogy','reference','quote_external')",
+        "text != ''",
+    ],
+    "external_evidence": [
+        "grade IN ('A','B','C','D')",
+    ],
+    "evaluation": [
+        "target_kind IN ('claim','reasoning_edge')",
+        "evaluator IN ('human','model','macro_bridge')",
+        "verdict IN ('confirmed','contested','partial','pending')",
+        "status IN ('draft','final','superseded')",
+    ],
+    "forecast": [
+        "outcome_condition != ''",
+        "status IN ('candidate','verified_hit','failed','superseded','withdrawn')",
+    ],
+}
+
+
+def install_v3(conn) -> None:
+    """Run only the v3 table DDL. Used by tests / fast-forward; the canonical
+    migration path runs through `lib/houchen_migrations.py` which additionally
+    recreates `corpus_run` / `corpus_attempt` to widen their CHECK constraints."""
+    conn.executescript(_SCHEMA_V3)
+
+
+# ---------------------------------------------------------------------------
 # Schema validation (P1-1: EXACT v1 validation — columns/types/pk/notnull,
 # FKs, index columns+uniqueness, CHECK clauses, and trigger bodies)
 # ---------------------------------------------------------------------------
@@ -571,7 +1126,7 @@ _V1_INDEX_SPEC = {
 # schema once v1 (or v2) has been applied.
 _V1_CHECKS = {
     "corpus_run": [
-        "kind IN ('catalog','caption_fetch','preflight','normalize')",
+        "kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed')",
         "status IN ('running','success','partial','failed')",
     ],
     "video": [
@@ -586,9 +1141,10 @@ _V1_CHECKS = {
     ],
     "corpus_attempt": [
         "stage IN ('catalog','subtitle_inventory','subtitle_download',"
-        "'subtitle_parse','freeze','normalize')",
+        "'subtitle_parse','freeze','normalize','analyze','validate','concept_seed')",
         "outcome IN ('success','skipped','missing','auth_required','unavailable',"
         "'retryable','tool_error','permanent_error','raw_integrity_error',"
+        "'analyze_failed','validate_failed','concept_seed_failed',"
         "'normalize_failed')",
         "retryable IN (0,1)",
     ],
@@ -848,6 +1404,6 @@ def pending_video_ids(conn) -> list:
     return [r[0] for r in conn.execute(sql).fetchall()]
 
 
-# Latest applied schema version. Bumped from 1 → 2 by PR-2 (transcript
-# normalizer layer).
-VERSION = 2
+# Latest applied schema version. Bumped from 2 → 3 by PR-3 (atomic claim
+# extraction + concept seeding).
+VERSION = 3

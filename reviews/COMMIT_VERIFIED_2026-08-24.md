@@ -81,8 +81,9 @@ verify_store_redline --expect    → exit 0
 | 2 | 16:07 后 OPS-1 presnapshot tick 记录 | 否 |
 | 3 | P2-3：macro E2E 含 `normalize` | 否 |
 | 4 | push | **仅用户明确要求** |
+| 5 | **PR-3 实现** | **已批准** — 见 `reviews/PR3_PLAN_AUDIT_2026-08-24.md` |
 
-**禁止**：未批准计划前写 PR-3 实现；修改三份 Codex 基线文档正文；读写 `data/store.db`。
+**禁止**：未按 PR3_PLAN_AUDIT 顺序跳步；修改三份 Codex 基线文档正文；读写 `data/store.db`。
 
 ---
 

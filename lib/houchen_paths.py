@@ -257,6 +257,46 @@ def normalize_failure_path(run_id: str, video_id: str) -> str:
     return os.path.join(failures_dir(), run_id, f"{video_id}.json")
 
 
+def analysis_artifacts_dir() -> str:
+    """PR-3: root for analysis input bundles and per-run model output.
+
+    Layout:
+      <root>/artifacts/analysis/inputs/<sha[:2]>/<sha>.json   (input bundle)
+      <root>/artifacts/analysis/runs/<run_id>.json            (model output)
+    """
+    return os.path.join(artifacts_dir(), "analysis")
+
+
+def analysis_input_path(input_sha256: str) -> str:
+    """Content-addressed path for an analysis input bundle."""
+    if not (isinstance(input_sha256, str) and len(input_sha256) == 64
+            and all(c in "0123456789abcdef" for c in input_sha256)):
+        raise DataRootError("input_sha256 must be 64-char lowercase hex")
+    return os.path.join(
+        analysis_artifacts_dir(), "inputs",
+        input_sha256[:2], f"{input_sha256}.json",
+    )
+
+
+def analysis_artifact_path(run_id: str) -> str:
+    """Per-run model output JSON: `<root>/artifacts/analysis/runs/<run>.json`."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id) or ".." in run_id:
+        raise DataRootError(f"invalid run_id: {run_id!r}")
+    return os.path.join(analysis_artifacts_dir(), "runs", f"{run_id}.json")
+
+
+def prompt_template_path(name: str, version: str) -> str:
+    """Optional prompt-template path (used only if external prompt files exist).
+
+    Allowed name pattern: alphanumerics + dash + underscore. Version: same.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or ".." in name \
+            or "/" in name or "\\" in name:
+        raise DataRootError(f"invalid prompt name: {name!r}")
+    _require_safe_version(version)
+    return os.path.join(resolve_data_root(), "prompts", f"{name}-{version}.md")
+
+
 def _require_safe_version(version: str) -> None:
     """Normalizer versions are written by PR-2 code only; the allowlist is
     deliberately tight: alphanumerics + dot + dash + underscore, no path

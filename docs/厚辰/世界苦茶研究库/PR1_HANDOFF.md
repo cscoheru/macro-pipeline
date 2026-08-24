@@ -467,3 +467,60 @@ acceptance pack.
 - 审核记录：`reviews/CC_AUDIT_AND_INSTRUCTIONS_2026-08-24.md` + `reviews/PR2_DELIVERY_2026-08-24.md` §11。
 
 下一阶段：PR-3（claim 抽取 + concept），按 CC §4 工单 P2-C 先产出 `docs/plans/pr3-claim-extraction.md` 待批。
+
+## 11. PR-3 — Atomic Claim Extraction + Concept Seeding (2026-08-24)
+
+### 11.1 Scope and invariant summary
+
+PR-3 now adds the brief §9 analysis contract above PR-2 transcript versions:
+content-addressed input bundles; default-offline deterministic fake analysis;
+ten hard validation rules; auditable accepted/rejected claims; proposed-only
+concepts; claim/concept/evidence/forecast materialization; status and coverage
+buckets; and `analyze` / `validate` / `concept-seed` CLI commands.
+
+The implementation remains **offline by default**: `fake` is the provider
+default, and CLI selections for real providers fail closed without network
+activity. `speaker_statement` has a deliberately strict two-part gate:
+R4 accepts it only for a known human-curated speaker; R10 rejects it whenever
+it originates from model output (no silent relabeling).
+
+### 11.2 Necessary module split beyond the §7.7 baseline count
+
+PR-3 necessarily adds four single-responsibility library modules beyond the
+PR-2 layout, as authorized in the approved plan:
+
+| New module | Reason it cannot be safely folded into an existing module |
+|---|---|
+| `houchen_prompt.py` | Versioned input contract + response JSON schema + canonical SHA; separates prompt/schema changes from runtime I/O. |
+| `houchen_analyzer.py` | Provider boundary, redacted errors, content-addressed atomic derived artifacts, and multi-video run aggregation. |
+| `houchen_validator.py` | Pure, independently testable implementation of all ten brief §9.3 hard gates. |
+| `houchen_concept.py` | Proposed/canonical lifecycle, reversible aliases, domain skeleton, and source-required human promotion. |
+
+This separation prevents provider or prompt changes from weakening the hard
+validator and prevents concept lifecycle mutations from becoming a side effect
+of model output.
+
+### 11.3 PR-3 evidence and delivery record
+
+- Full scripts suite: **314 passed**.
+- Houchen + macro-regression subset: **196 passed**.
+- Static compilation: `python3 -m py_compile lib/houchen_*.py scripts/houchen_pipeline.py` → exit 0.
+- Three PR-3 dry-run commands leave a fresh temporary research root empty.
+- Fake-only E2E proves formal `claim`, `claim_source`, `concept`,
+  `concept_source`, `claim_concept`, `evidence_mention`, and `forecast` rows,
+  then proves re-validation does not duplicate formal rows.
+- A multi-video analyze artifact is keyed by both run and video, so no
+  candidate output can overwrite/cross-bind another video's transcript.
+- Protected five baseline artifacts and the accepted macro `data/store.db`
+  baseline remain unchanged; real `data/houchen/` has zero files.
+
+The full reviewer checklist, tests, exact SHA evidence, constraints, and
+out-of-scope items are in `reviews/PR3_DELIVERY_2026-08-24.md`.
+
+### 11.4 Verdict
+
+**PR-3 ACCEPTED (Cursor 2026-08-24).**
+
+- 独立验收：`reviews/PR3_ACCEPTANCE_CURSOR_2026-08-24.md`；二次复验仍为 74 / 196 / 314 passed，PR-1 红线 0 漂移。
+- P2 backlog（非阻断）：补充「normalize → analyze → validate」后的宏观树 before/after 专用隔离 E2E（F-5 完整项）。
+- 本次用户已授权按 GIT-PR3 提交；不得 push、部署、安装调度、调用真模型或运行全频道分析。
