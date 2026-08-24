@@ -240,3 +240,106 @@ PR 已开：https://github.com/cscoheru/macro-pipeline/pull/2
 - 用户贴 GitHub 审验反馈 → Cursor 改 INBOX
 - 用户说「合并 PR」→ CC 再开 merge kickoff
 - Live smoke（catalog → publish 垂直切片）另开 kickoff，不在本工单
+
+
+---
+
+## PR-4 Post-Merge Doc Push to Main (CC, 2026-08-24)
+
+**响应**：用户「本地还有未提交的 review 文件...可以让 CC 推到 main」授权
+
+### 执行
+
+```text
+git checkout main                       # → 37ef395 (post-merge)
+git pull --ff-only                     # Already up to date
+git add PR1_HANDOFF.md + CC_INBOX.md + 4 PR-4 review files
+git commit -m "docs(pr4): post-merge records — §12.6 verdict update, INBOX, live-smoke kickoff"
+# → 685148c
+git push origin main                   # → success (37ef395..685148c)
+```
+
+### 包含
+
+- `docs/厚辰/世界苦茶研究库/PR1_HANDOFF.md` §12.6（ACCEPTED → MERGED，PR #2 → main @ 37ef395）
+- `reviews/PR4_MERGE_KICKOFF_2026-08-24.md`（Cursor 授权 merge 的 kickoff）
+- `reviews/PR4_MERGED_2026-08-24.md`（merge 记录）
+- `reviews/PR4_GITHUB_REVIEW_2026-08-24.md`（GitHub 侧审验）
+- `reviews/PR4_LIVE_SMOKE_KICKOFF_2026-08-24.md`（下一工单：catalog → publish 垂直 live smoke）
+- `reviews/CC_INBOX.md`（STATUS → WAIT_USER）
+
+### 暂未入库（继续 out-of-scope）
+
+- `reviews/PR1_GITHUB_REVIEW_2026-08-24.md`（PR-1 残留）
+- `reviews/PR3_MERGED_2026-08-24.md`（PR-3 残留）
+
+### main HEAD
+
+```text
+685148c docs(pr4): post-merge records — §12.6 verdict update, INBOX, live-smoke kickoff
+37ef395 Merge pull request #2 from cscoheru/feat/houchen-pr4-fts-publish
+c40c1da docs(pr4): PR-4 delivery, acceptance, handoff and protocol docs
+3d1b784 feat(houchen): PR-4 FTS5 search and Obsidian render/publish
+6a6ddde docs(pr4): apply plan audit F-1, F-2, S-2, S-4 corrections
+09c30e6 docs: PR-4 plan — Obsidian research map + FTS5 substrate (no implementation)
+```
+
+### 等 Cursor / 用户
+
+INBOX 仍为 `WAIT_USER`；用户裁定门：live smoke kickoff (`reviews/PR4_LIVE_SMOKE_KICKOFF_2026-08-24.md`)。
+
+
+---
+
+## PR-4 Live Smoke (CC, 2026-08-24)
+
+**响应**：`reviews/PR4_LIVE_SMOKE_KICKOFF_2026-08-24.md`（用户「live smoke」）
+
+### 执行
+
+```text
+catalog --live-smoke-allow --limit 50
+  → 129 videos (50+50+29)
+fetch-captions × 3 (cYP5Hc-ypOM, yVESr3OO7Gg, uQmOzzgCzQg)
+  → each frozen=1
+normalize × 3
+  → each normalized=1 (vtt_json3_v1/2026-08-24.1)
+analyze × 3 --provider fake
+  → each analyzed=1
+validate
+  → partial: validated=0, failed=3 (fake provider 限制，brief §9.3 Rule 2 拒绝)
+concept-seed
+  → seeded=7
+search --kind transcript --query "DeepSeek"
+  → total=5 (真实 transcript 命中)
+render --kind video × 3
+  → 3 .md in data/houchen/publish/render/2026-08-24.1/video/
+publish --dry-run
+  → pure plan, no PUT
+pytest scripts -q
+  → 384 passed
+```
+
+### 红线
+
+```text
+data/store.db  前 = 后 = 3c2ceda61c24…  (0 漂移；live smoke 未触碰)
+data/houchen   0 → 16 files  (catalog → analyze → render 全链；预期内)
+```
+
+### 报告
+
+详见 `reviews/PR4_LIVE_SMOKE_REPORT_2026-08-24.md`。
+
+### 关键发现
+
+- 真实 transcript 已索引；search "DeepSeek" / "中国AI" 命中。
+- Validate 0 accepted 是 fake provider 的硬编码 exact_quote 不匹配真 segment；brief §9.3 硬校验器正确触发。要 production claims 需真模型（用户另授权）。
+- Markdown 模板可正确读取 title / 时间 / 链接 / 出处，frontmatter 完整。
+- publish --dry-run 是 pure plan，未触发 PUT。
+
+### 等 Cursor
+
+- 审验 `reviews/PR4_LIVE_SMOKE_REPORT_2026-08-24.md`
+- 真模型授权（`--provider anthropic/deepseek`）另开 kickoff
+- `config/houchen_publish.env` 创建 + 真 Obsidian PUT 另开 kickoff

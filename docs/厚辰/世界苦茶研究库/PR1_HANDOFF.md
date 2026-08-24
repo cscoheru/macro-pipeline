@@ -620,3 +620,5 @@ widening is performed by `_recreate_with_widened_check` (PR-2 pattern).
 - 独立验收：`reviews/PR4_ACCEPTANCE_CURSOR_2026-08-24.md`；合并后 `main` 上 384 passed。
 - `data/store.db` SHA = `3c2ceda…`（launchd 漂移，非 houchen 引入）。
 - **下一步**：用户授权 **live smoke** → `reviews/PR4_LIVE_SMOKE_KICKOFF_2026-08-24.md`（第一批可读 Markdown）。
+- 合并后审验：`reviews/PR4_POST_MERGE_ACCEPTANCE_2026-08-24.md`（PASS，384 on `main` @ `685148c`）。
+- Live smoke：`reviews/PR4_LIVE_SMOKE_ACCEPTANCE_2026-08-24.md`（PASS；3 视频 Markdown @ `publish/render/2026-08-24.1/video/`）。
