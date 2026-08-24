@@ -614,9 +614,9 @@ widening is performed by `_recreate_with_widened_check` (PR-2 pattern).
 
 ### 12.6 Verdict
 
-**PR-4 ACCEPTED (Cursor 2026-08-24).**
+**PR-4 MERGED (2026-08-24).**
 
-- 独立验收：`reviews/PR4_ACCEPTANCE_CURSOR_2026-08-24.md`；384 passed；F-1/F-2/S-2/S-4 闭环。
-- `data/store.db` SHA = `3c2ceda…`（⚠️ 再次 launchd 漂移，非 PR-4 引入；S-4 守卫确认未触碰）。
-- 下一步：`reviews/PR4_COMMIT_KICKOFF_2026-08-24.md`（commit → push → 开 PR）；INBOX `STATUS=DO`。
-- Live Obsidian PUT / `config/houchen_publish.env` 另开 kickoff。
+- GitHub PR #2 merged to `main` @ `37ef395`.
+- 独立验收：`reviews/PR4_ACCEPTANCE_CURSOR_2026-08-24.md`；合并后 `main` 上 384 passed。
+- `data/store.db` SHA = `3c2ceda…`（launchd 漂移，非 houchen 引入）。
+- **下一步**：用户授权 **live smoke** → `reviews/PR4_LIVE_SMOKE_KICKOFF_2026-08-24.md`（第一批可读 Markdown）。
