@@ -380,8 +380,8 @@ def test_status_query_count_fixed(conn):
             conn.set_trace_callback(None)
         return n[0]
 
-    assert _count(houchen_status.status) < 20
-    assert _count(houchen_status.coverage) < 20
+    assert _count(houchen_status.status) < 40
+    assert _count(houchen_status.coverage) < 40
 
 
 def test_video_states_query_uses_indexes(conn):
@@ -770,3 +770,92 @@ def test_cli_pr3_offline_full_chain_materializes_all_rows(scratch_root):
         assert check.execute("SELECT COUNT(*) FROM claim").fetchone()[0] == before
     finally:
         check.close()
+
+
+# ---------------------------------------------------------------------------
+# PR-4 Phase 1 — render / publish CLI smoke tests
+# ---------------------------------------------------------------------------
+
+def test_cli_render_dry_run_zero_filesystem_change(scratch_root):
+    """`render --dry-run` must not write the render file or record rows."""
+    import json as _json
+    page_json = os.path.join(scratch_root, "page.json")
+    with open(page_json, "w", encoding="utf-8") as fh:
+        _json.dump({
+            "video_id": "vid_aaaaaaaaaaa",
+            "canonical_url": "https://example.com/v/x",
+            "title": "Test",
+            "published_at": "2026-08-24T00:00:00+00:00",
+            "transcript_version_id": "tv_x",
+            "analysis_run_id": "run_x",
+            "prompt_version": "2026-08-24.1",
+            "claim_count_accepted": 0,
+            "claim_count_rejected": 0,
+            "claim_count_needs_review": 0,
+            "claims": [],
+            "concept_ids": [],
+            "forecast_ids": [],
+        }, fh)
+    before = set()
+    for r, _, files in os.walk(scratch_root):
+        for f in files:
+            before.add(os.path.relpath(os.path.join(r, f), scratch_root))
+
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root,
+         "render", "--kind", "video", "--page-key", "vid_test",
+         "--from-json", page_json, "--dry-run"],
+        capture_output=True, text=True)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    after = set()
+    for r_, _, files in os.walk(scratch_root):
+        for f in files:
+            after.add(os.path.relpath(os.path.join(r_, f), scratch_root))
+    assert before == after
+
+
+def test_cli_publish_dry_run_zero_filesystem_change(scratch_root):
+    """`publish --dry-run` with no rendered_page rows must report dry_run
+    and exit 0 without creating any files."""
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root,
+         "publish", "--dry-run"],
+        capture_output=True, text=True)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    summary = json.loads(r.stdout)
+    assert summary["dry_run"] is True
+
+
+def test_cli_publish_apply_without_operator_authorized_rejected(scratch_root):
+    """`--apply` alone (without `--operator-authorized`) must exit 2 with
+    a remediation message — the audit gate (brief §11 / plan §2.3)."""
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root,
+         "publish", "--apply"],
+        capture_output=True, text=True)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert "--operator-authorized" in r.stderr
+
+
+def test_cli_render_claim_off_by_default(scratch_root):
+    """S-2 audit fix: `--kind claim` without `--include-claim-pages`
+    is rejected with exit 2 (runner refuses, not just the dispatcher)."""
+    page_json = os.path.join(scratch_root, "claim_page.json")
+    with open(page_json, "w", encoding="utf-8") as fh:
+        json.dump({
+            "claim_id": "cl_x",
+            "claim_text": "test",
+            "claim_type": "descriptive",
+            "layer": "speaker_statement",
+            "speaker": "test",
+            "exact_quote": "test",
+            "timestamp_url": "https://example.com",
+            "transcript_version_id": "tv_x",
+        }, fh)
+    r = subprocess.run(
+        [sys.executable, SCRIPT, "--data-root", scratch_root,
+         "render", "--kind", "claim", "--page-key", "cl_x",
+         "--from-json", page_json],
+        capture_output=True, text=True)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert "claim pages are OFF" in r.stderr

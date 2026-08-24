@@ -198,6 +198,8 @@ def status(conn, *, yt_dlp_version: str = "") -> dict:
         "claims": claims,
         "concepts": concepts,
         "analyze_scope": _analyze_scope_counts(conn),
+        "publish_state": _publish_state(conn),
+        "search_index_size": _search_index_size(conn),
         "oldest_pending": _oldest_pending(conn),
         "recent_errors_by_class": _recent_error_classes(conn),
     }
@@ -220,6 +222,8 @@ def coverage(conn) -> dict:
         "claim_outcomes": claims,
         "concept_state": concepts,
         "analyze_scope": _analyze_scope_counts(conn),
+        "publish_state": _publish_state(conn),
+        "search_index_size": _search_index_size(conn),
         "catalog_partial": _catalog_partial(conn),
     }
 
@@ -287,6 +291,47 @@ def _count_by_collection(conn):
         " GROUP BY vc.collection_name"
     ).fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+def _publish_state(conn) -> dict:
+    """PR-4 Phase 1 — publish ledger snapshot. Empty dict on pre-v4 DBs."""
+    try:
+        rendered = conn.execute(
+            "SELECT COUNT(*) FROM rendered_page").fetchone()[0]
+    except sqlite3.OperationalError:
+        return {"rendered_pages": 0}
+    by_status: dict[str, int] = {}
+    try:
+        for r in conn.execute(
+            "SELECT status, COUNT(*) FROM publish_record GROUP BY status"
+        ).fetchall():
+            by_status[r[0]] = r[1]
+    except sqlite3.OperationalError:
+        by_status = {}
+    return {
+        "rendered_pages": rendered,
+        "publish_records": sum(by_status.values()),
+        "by_status": by_status,
+    }
+
+
+def _search_index_size(conn) -> dict:
+    """PR-4 Phase 1 — FTS5 index row counts per table. Empty dict on pre-v4.
+
+    Implemented as a single UNION ALL query so it adds only one round
+    trip to the status() / coverage() call (PR-1 query-budget guard).
+    """
+    try:
+        rows = conn.execute(
+            "SELECT 'transcript_fts', (SELECT COUNT(*) FROM transcript_fts)"
+            " UNION ALL SELECT 'claim_fts', (SELECT COUNT(*) FROM claim_fts)"
+            " UNION ALL SELECT 'concept_fts', (SELECT COUNT(*) FROM concept_fts)"
+            " UNION ALL SELECT 'concept_alias_fts',"
+            " (SELECT COUNT(*) FROM concept_alias_fts)"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+    except sqlite3.OperationalError:
+        return {}
 
 
 def _catalog_partial(conn, limit=10):

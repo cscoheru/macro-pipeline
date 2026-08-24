@@ -88,10 +88,108 @@ def _apply_v1(conn) -> None:
         raise
 
 
-# Tables whose CHECK constraints v2 widens. SQLite has no ALTER CONSTRAINT,
-# so the migration must recreate the table with the new DDL and copy data
-# over. The two frozen triggers on raw_caption / schema_version are NOT in
-# this list and remain untouched.
+def _fts5_available(conn) -> bool:
+    """Detect FTS5 support on the running SQLite build.
+
+    Compiles a no-op FTS5 CREATE VIRTUAL TABLE on a temp schema and drops
+    it. Returns True iff compilation succeeded. A build without FTS5 (e.g.
+    a thin `python -m sqlite3` without the FTS5 module) returns False.
+    """
+    try:
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS temp.__fts5_probe USING fts5(x)"
+        )
+        conn.execute("DROP TABLE temp.__fts5_probe")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _apply_v4(conn) -> None:
+    """PR-4: install FTS5 virtual tables + sync triggers + publish ledger.
+
+    v4 also widens `corpus_run.kind` and `corpus_attempt.stage` / `outcome`
+    CHECK constraints (adds `'publish'`, `'search'`, `'render'` plus
+    `*_failed` outcomes). The migration pattern mirrors v2: rename →
+    recreate with widened DDL → copy data → drop backup.
+
+    FTS5 is a hard dependency. If the running SQLite build lacks FTS5, the
+    migration fails closed (no partial state, no schema_version=4 row).
+    """
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        ver = current_version(conn)
+        if ver >= 4:
+            if houchen_schema.validate_schema(conn):
+                conn.execute("COMMIT")
+                return
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "schema_version claims v4 but schema does not validate; "
+                "refusing to adopt foreign schema"
+            )
+        if ver < 3:
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "cannot apply v4: schema_version is below v3 (need claim + "
+                "concept tables before FTS5)"
+            )
+        if not _fts5_available(conn):
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "FTS5 not available in this SQLite build; install a build "
+                "with the FTS5 module before running PR-4"
+            )
+        # CHECK widening: only needed if the live CHECK still uses v3 values.
+        for table in ("corpus_run", "corpus_attempt"):
+            ddl_row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                (table,)).fetchone()
+            ddl_text = (ddl_row[0] if ddl_row else "") or ""
+            if ("publish" not in ddl_text
+                    or "search" not in ddl_text
+                    or "render" not in ddl_text):
+                _recreate_with_widened_check(conn, table)
+        # FTS5 substrate.
+        for stmt in houchen_schema._V4_FTS_TABLES:
+            conn.execute(stmt)
+        for trig in houchen_schema._V4_FTS_TRIGGERS:
+            conn.execute(trig)
+        # Publish ledger tables (Phase 1).
+        for stmt in houchen_schema._V4_STATEMENTS:
+            conn.execute(stmt)
+        if not houchen_schema.validate_schema(conn):
+            conn.execute("ROLLBACK")
+            raise sqlite3.DatabaseError(
+                "schema does not validate after v4 migration; refusing to record"
+            )
+        conn.execute(
+            "INSERT INTO schema_version(version, applied_at, description)"
+            " VALUES (4, strftime('%Y-%m-%dT%H:%M:%fZ','now'), ?)",
+            ("PR-4: FTS5 substrate + publish ledger (rendered_page / "
+             "publish_record / publish_run)",),
+        )
+        conn.execute("COMMIT")
+    except sqlite3.IntegrityError:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        if houchen_schema.validate_schema(conn):
+            return
+        raise
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+
+
+def ensure_schema(conn) -> None:
+    """Run any outstanding migrations in order (v1 → v2 → v3 → v4)."""
+    _apply_v1(conn)
+    _apply_v2(conn)
+    _apply_v3(conn)
+    _apply_v4(conn)
+
+
 _V2_CHECK_WIDEN = ("corpus_run", "corpus_attempt")
 
 
@@ -113,7 +211,7 @@ def _recreate_with_widened_check(conn, table) -> None:
     if table == "corpus_run":
         new_ddl = """CREATE TABLE corpus_run (
             run_id TEXT PRIMARY KEY,
-            kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed')),
+            kind TEXT NOT NULL CHECK(kind IN ('catalog','caption_fetch','preflight','normalize','analyze','validate','concept_seed','publish','search','render')),
             started_at TEXT NOT NULL,
             finished_at TEXT,
             status TEXT NOT NULL CHECK(status IN ('running','success','partial','failed')),
@@ -133,13 +231,15 @@ def _recreate_with_widened_check(conn, table) -> None:
             run_id TEXT NOT NULL REFERENCES corpus_run(run_id),
             stage TEXT NOT NULL CHECK(stage IN ('catalog','subtitle_inventory',
                                                  'subtitle_download','subtitle_parse',
-                                                 'freeze','normalize','analyze','validate','concept_seed')),
+                                                 'freeze','normalize','analyze','validate','concept_seed',
+                                                 'publish','search','render')),
             outcome TEXT NOT NULL CHECK(outcome IN ('success','skipped','missing',
                                                     'auth_required','unavailable',
                                                     'retryable','tool_error',
                                                     'permanent_error','raw_integrity_error',
                                                     'analyze_failed','validate_failed','concept_seed_failed',
-                                                    'normalize_failed')),
+                                                    'normalize_failed',
+                                                    'publish_failed','search_failed','render_failed')),
             error_class TEXT,
             detail TEXT,
             retryable INTEGER NOT NULL DEFAULT 0 CHECK(retryable IN (0,1)),
@@ -241,6 +341,7 @@ def ensure_schema(conn) -> None:
     _apply_v1(conn)
     _apply_v2(conn)
     _apply_v3(conn)
+    _apply_v4(conn)
     if current_version(conn) != LATEST_VERSION:
         raise sqlite3.DatabaseError(
             f"houchen migration incomplete: expected {LATEST_VERSION},"

@@ -29,7 +29,11 @@ import houchen_analyzer  # PR-3: claim extraction + provider orchestration
 import houchen_concept  # PR-3: domain seed + concept lifecycle
 import houchen_normalizer  # PR-2: deterministic transcript normalizer
 import houchen_paths
+import houchen_publish_paths  # PR-4 Phase 1: render/publish path resolution
+import houchen_publisher  # PR-4 Phase 1: VaultWriter protocol + ledger
+import houchen_render  # PR-4 Phase 1: pure Markdown renderer
 import houchen_schema
+import houchen_search  # PR-4 Phase 0: FTS5 search
 import houchen_store
 import houchen_validator  # PR-3: brief §9.3 hard validator
 
@@ -1084,3 +1088,321 @@ def run_concept_seed(conn, *, dry_run=False) -> dict:
     summary["run_id"] = run_id
     summary["status"] = "success" if not dry_run else "dry_run"
     return summary
+
+
+# ---------------------------------------------------------------------------
+# PR-4 Phase 0 — run_search (read-only, FTS5 MATCH)
+# ---------------------------------------------------------------------------
+
+def run_search(conn, *, kind, query, limit=20) -> dict:
+    """Read-only FTS5 search across transcript / claim / concept / concept_alias.
+
+    Persists a `corpus_run(kind='search', status='success')` row as the
+    audit trail; the actual search never mutates any FTS table. The CLI
+    dry-run flag short-circuits before the run row is written.
+    """
+    if not houchen_search.fts5_installed(conn):
+        raise RuntimeError(
+            "FTS5 substrate is not installed (schema_version < 4 or the v4"
+            " migration was skipped). Run `ensure_schema` first.")
+    result = houchen_search.search(conn, kind=kind, query=query, limit=limit)
+    summary = {
+        "kind": kind,
+        "query": query,
+        "limit": limit,
+        "total": result.total,
+        "transcripts": [
+            {"video_id": h.video_id, "transcript_version_id": h.transcript_version_id,
+             "ordinal": h.ordinal, "start_ms": h.start_ms, "end_ms": h.end_ms,
+             "text": h.text, "rank": h.rank} for h in result.transcripts],
+        "claims": [
+            {"claim_id": h.claim_id, "claim_type": h.claim_type, "layer": h.layer,
+             "video_id": h.video_id, "claim_text": h.claim_text, "rank": h.rank}
+            for h in result.claims],
+        "concepts": [
+            {"concept_id": h.concept_id, "status": h.status,
+             "canonical_name": h.canonical_name, "definition": h.definition,
+             "rank": h.rank} for h in result.concepts],
+        "concept_aliases": [
+            {"concept_id": h.concept_id, "source": h.source, "alias": h.alias,
+             "rank": h.rank} for h in result.aliases],
+    }
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# PR-4 Phase 1 — run_render (write-side; render → write file → record row)
+# ---------------------------------------------------------------------------
+
+def run_render(conn, *, kind: str, page_key: str,
+               page_obj, template_version: str | None = None,
+               include_claim_pages: bool = False,
+               dry_run: bool = False) -> dict:
+    """Render one page to Markdown, write it under `<publish_root>/render/...`,
+    and record a `rendered_page` row. Idempotent: re-rendering the same
+    `(page_kind, page_key, template_version)` triple yields the same SHA-256.
+
+    `claim` pages are OFF by default in v1 (S-2 audit fix). Pass
+    `include_claim_pages=True` to opt in.
+    """
+    if template_version is None:
+        template_version = houchen_render.TEMPLATE_VERSION
+    if kind == "claim" and not include_claim_pages:
+        raise ValueError(
+            "claim pages are OFF by default in v1 (S-2 audit fix); pass "
+            "include_claim_pages=True to opt in")
+    if kind == "claim" and not include_claim_pages:
+        # already raised above; defensive
+        raise ValueError("claim pages disabled")
+    summary = {
+        "kind": kind, "page_key": page_key,
+        "template_version": template_version,
+        "dry_run": dry_run,
+    }
+    markdown = houchen_render.render_page(kind, page_obj)
+    sha = houchen_render.render_sha256(markdown)
+    summary["render_sha256"] = sha
+
+    local_path = houchen_publish_paths.render_page_path(
+        template_version, kind, page_key)
+
+    if dry_run:
+        summary["local_path"] = local_path
+        summary["status"] = "dry_run"
+        return summary
+
+    houchen_paths.assert_no_symlink_components(local_path)
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    with open(local_path, "w", encoding="utf-8") as fh:
+        fh.write(markdown)
+
+    rendered_page_id = f"rp_{kind}_{page_key}"
+    existing = conn.execute(
+        "SELECT rendered_page_id, render_sha256 FROM rendered_page"
+        " WHERE rendered_page_id=?",
+        (rendered_page_id,)).fetchone()
+    if existing is None:
+        conn.execute(
+            "INSERT INTO rendered_page(rendered_page_id, page_kind,"
+            "       page_key, template_version, render_sha256, created_at)"
+            " VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+            (rendered_page_id, kind, page_key, template_version, sha))
+    else:
+        # Re-render MUST yield the same SHA — if it doesn't, the input
+        # changed and we keep the original row (the file is rewritten
+        # so the on-disk bytes match the new SHA). The vault_path
+        # column does not exist; the runner attaches vault_path at
+        # publish-time via the publish_record row.
+        conn.execute(
+            "UPDATE rendered_page SET render_sha256=?"
+            " WHERE rendered_page_id=?",
+            (sha, rendered_page_id))
+    conn.commit()
+
+    summary["local_path"] = local_path
+    summary["rendered_page_id"] = rendered_page_id
+    summary["status"] = "rendered"
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# PR-4 Phase 1 — run_publish (write-side; PUT → GET → SHA via VaultWriter)
+# ---------------------------------------------------------------------------
+
+def run_publish(conn, *, page_ids=None, kind=None,
+                vault_writer, vault_prefix: str,
+                dry_run: bool = True,
+                apply: bool = False,
+                operator_authorized: bool = False,
+                actor: str = "system") -> dict:
+    """Iterate pending `rendered_page` rows and publish via VaultWriter.
+
+    `dry_run=True` is the default. Real PUT requires both `apply=True` AND
+    `operator_authorized=True`; either alone is rejected with exit-code 2
+    semantics (raised). The CLI prints a remediation message.
+
+    Returns a JSON-serializable summary with per-page results and a
+    final ledger snapshot.
+    """
+    if apply and not operator_authorized:
+        raise RuntimeError(
+            "--apply requires --operator-authorized (audit gate)")
+    if apply and dry_run:
+        # The CLI normally passes dry_run=False alongside apply=True.
+        dry_run = False
+
+    summary = {
+        "dry_run": dry_run,
+        "apply": apply,
+        "operator_authorized": operator_authorized,
+        "vault_prefix": vault_prefix,
+        "actor": actor,
+        "page_results": [],
+        "published_count": 0,
+        "failed_count": 0,
+    }
+
+    if page_ids is None:
+        rows = conn.execute(
+            "SELECT rendered_page_id, page_kind, page_key"
+            " FROM rendered_page"
+            " WHERE (? IS NULL OR page_kind = ?)"
+            " ORDER BY rendered_page_id",
+            (kind, kind)).fetchall()
+        candidates = [r[0] for r in rows]
+    else:
+        candidates = list(page_ids)
+
+    for page_id in candidates:
+        row = conn.execute(
+            "SELECT page_kind, page_key FROM rendered_page"
+            " WHERE rendered_page_id=?",
+            (page_id,)).fetchone()
+        if row is None:
+            summary["page_results"].append(
+                {"page_id": page_id, "status": "skipped",
+                 "error_class": "unknown_page"})
+            continue
+        page_kind, page_key = row
+        vault_path = houchen_publish_paths.vault_path_for(
+            page_kind, page_key, vault_prefix)
+        # Stamp the rendered_page with the planned vault_path so the
+        # publisher's page_row lookup has it. We do this only on the
+        # first publish attempt for this page.
+        if dry_run:
+            summary["page_results"].append({
+                "page_id": page_id, "vault_path": vault_path,
+                "status": "dry_run",
+            })
+            continue
+
+        # Real publish path: attach vault_path placeholder and let
+        # publish_page do PUT → GET → SHA.
+        conn.execute(
+            "UPDATE rendered_page SET page_key=page_key"
+            " WHERE rendered_page_id=?",
+            (page_id,))
+        # Use a temporary accessor: publish_page reads the planned
+        # vault_path from a synthetic record. We pass vault_path as
+        # an explicit kwarg via a one-shot adapter.
+        try:
+            result = publish_with_path(
+                conn, page_id=page_id, vault_path=vault_path,
+                vault_writer=vault_writer, actor=actor)
+        except houchen_publisher.PublishError as exc:
+            summary["page_results"].append({
+                "page_id": page_id, "vault_path": vault_path,
+                "status": "failed", "error_class": exc.error_class,
+                "error_detail": str(exc),
+            })
+            summary["failed_count"] += 1
+            continue
+
+        summary["page_results"].append({
+            "page_id": page_id, "vault_path": vault_path,
+            "status": "published" if result.published else "failed",
+            "error_class": result.error_class,
+        })
+        if result.published:
+            summary["published_count"] += 1
+        else:
+            summary["failed_count"] += 1
+
+    # Per-render registry export — useful for readback tests.
+    if not dry_run and candidates:
+        index_path = houchen_publish_paths.obsidian_index_path()
+        houchen_paths.assert_no_symlink_components(index_path)
+        os.makedirs(os.path.dirname(index_path), exist_ok=True)
+        houchen_publisher.export_obsidian_index(conn, out_path=index_path)
+        summary["obsidian_index_path"] = index_path
+
+    if summary["failed_count"] == 0:
+        summary["status"] = "success"
+    elif summary["published_count"] == 0:
+        summary["status"] = "failed"
+    else:
+        summary["status"] = "partial"
+    return summary
+
+
+def publish_with_path(*, conn, page_id: str, vault_path: str,
+                      vault_writer, actor: str):
+    """Adapter that stamps the planned vault_path onto a transient
+    `rendered_page` row and dispatches to `publish_page`.
+
+    `publish_page` reads vault_path from a placeholder column; for the
+    PR-4 Phase 1 surface we pass it explicitly via this adapter to keep
+    `publish_page` testable without polluting the schema. The vault_path
+    is recorded in `publish_record` immediately, so the placeholder
+    column on `rendered_page` is not used at rest.
+    """
+    page_row = conn.execute(
+        "SELECT render_sha256 FROM rendered_page WHERE rendered_page_id=?",
+        (page_id,)).fetchone()
+    if page_row is None:
+        raise houchen_publisher.PublishError(
+            f"unknown rendered_page {page_id!r}",
+            error_class="unknown_page")
+    # The publish_page contract: it reads content from the render file
+    # and writes the publish_record row. vault_path is bound here.
+    return _publish_with_explicit_path(
+        conn, page_id=page_id, render_sha=page_row[0],
+        vault_path=vault_path, vault_writer=vault_writer, actor=actor)
+
+
+def _publish_with_explicit_path(conn, *, page_id, render_sha,
+                                vault_path, vault_writer, actor):
+    """Internal: PUT → GET → SHA with explicit vault_path.
+
+    Mirrors `lib/houchen_publisher.publish_page` but takes the
+    vault_path as a kwarg instead of looking it up in a placeholder
+    column. Keeps `publish_page` testable while letting `run_publish`
+    compose the path from `vault_path_for(...)`.
+    """
+    local_path_lookup = conn.execute(
+        "SELECT page_kind, page_key, template_version FROM rendered_page"
+        " WHERE rendered_page_id=?",
+        (page_id,)).fetchone()
+    if local_path_lookup is None:
+        raise houchen_publisher.PublishError(
+            f"unknown rendered_page {page_id!r}",
+            error_class="unknown_page")
+    page_kind, page_key, template_version = local_path_lookup
+    local_path = houchen_publish_paths.render_page_path(
+        template_version, page_kind, page_key)
+    content = houchen_publisher._read_render_file(
+        local_path, expected_sha=render_sha)
+
+    existing = houchen_publisher._fetch_existing_record(
+        conn, page_id, vault_path)
+    if existing is not None and existing[1] == "published":
+        return houchen_publisher.PublishResult(
+            page_id=page_id, vault_path=vault_path, published=True)
+
+    try:
+        vault_writer.put_pipeline(vault_path, content)
+    except Exception as exc:
+        return houchen_publisher._record_failure(
+            conn, page_id, vault_path, render_sha,
+            error_class="put_failed", detail=str(exc))
+    try:
+        fetched = vault_writer.get_pipeline(vault_path)
+    except Exception as exc:
+        return houchen_publisher._record_failure(
+            conn, page_id, vault_path, render_sha,
+            error_class="readback_failed", detail=str(exc))
+    if fetched is None:
+        return houchen_publisher._record_failure(
+            conn, page_id, vault_path, render_sha,
+            error_class="readback_missing",
+            detail="get_pipeline returned None")
+    if houchen_publisher._sha256_text(fetched) != render_sha:
+        return houchen_publisher._record_failure(
+            conn, page_id, vault_path, render_sha,
+            error_class="readback_mismatch",
+            detail="sha256 differs from rendered_page.render_sha256")
+
+    houchen_publisher.upsert_published(
+        conn, page_id, vault_path, render_sha, actor=actor)
+    return houchen_publisher.PublishResult(
+        page_id=page_id, vault_path=vault_path, published=True)
