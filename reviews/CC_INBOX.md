@@ -9,17 +9,17 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **工单** | 用户已选 **B**，但 `houchen_analyze.env` / `insight.env` **没有** `ANTHROPIC_API_KEY` 或 `MINIMAX_API_KEY` |
+| **STATUS** | `DO` |
+| **工单** | `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | ASR 试点；扩 5 asr-transcribe（勿再开） |
-| **还要** | 往 `config/houchen_analyze.env` 写入可用的 anthropic 或 minimax key（chmod 600），或改选 A/C |
-| **更新** | 2026-08-25 19:04 Cursor：B 无法切换——本机只有 DeepSeek key（已 402） |
+| **已完成（勿重做）** | ASR 试点；扩 5 asr-transcribe+import 5/5（勿再开 asr） |
+| **还要做** | 用户选 **A**：`provider deepseek` 补跑 5 支 analyze → validate → render → publish → 报告。仍 402 则交卷勿死循环 |
+| **更新** | 2026-08-25 19:12 Cursor：用户改选 A |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

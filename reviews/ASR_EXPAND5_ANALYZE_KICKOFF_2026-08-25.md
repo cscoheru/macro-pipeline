@@ -1,8 +1,9 @@
 # Claude Code — 扩 5 analyze 补跑 + 报告
 
-> **签发**：Cursor Autopilot（2026-08-25 18:58）  
-> **前置**：父 loop `AGENT_EXPAND5_DONE`；5/5 `transcript_version` ok；analyze 全失败（loop 里 `model=""` / 未打到 DeepSeek）  
-> **不问用户**；交卷 → `WAIT_CURSOR`
+> **签发**：Cursor Autopilot（2026-08-25 18:58；**19:12 用户选 A** 重试 DeepSeek）  
+> **前置**：父 loop `AGENT_EXPAND5_DONE`；5/5 `transcript_version` ok；上次 analyze HTTP 402  
+> **不问用户**；交卷 → `WAIT_CURSOR`  
+> 若仍 402：记 error_class，**不要死循环重试**，交卷 WAIT_CURSOR
 
 ---
 

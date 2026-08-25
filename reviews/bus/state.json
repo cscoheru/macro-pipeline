@@ -1,9 +1,9 @@
 {
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
-  "inbox_status": "WAIT_USER",
+  "inbox_status": "DO",
   "ticket": "reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 9,
-  "note": "WAIT_USER: B chosen but no ANTHROPIC/MINIMAX key on disk"
+  "cursor_seq": 10,
+  "note": "DO: user chose A retry DeepSeek analyze; no asr-transcribe"
 }
