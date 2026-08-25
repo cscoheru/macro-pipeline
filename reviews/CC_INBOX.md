@@ -7,25 +7,21 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **审验** | `reviews/PR4_CONCEPT_EXIT_ACCEPTANCE_2026-08-25.md` — **PASS** |
-| **说明** | PR-4 退出已关；下一刀 brief §26 |
-| **更新** | 2026-08-25 Cursor（用户「审验」） |
+| **STATUS** | `DO` |
+| **工单** | `reviews/SECTION26_BUNDLE_KICKOFF_2026-08-25.md` |
+| **授权** | 用户「全量字幕 / PR-5 / ASR」（2026-08-25） |
+| **顺序** | A 全量字幕 → B ASR 预研（无实现）→ C PR-5 计划（无实现） |
+| **禁止** | 全频道 analyze；ASR 下模型；PR-5 写代码 |
+| **更新** | 2026-08-25 Cursor |
 
-### 用户裁定门（brief §26）
+### 禁止伪裁定门
 
-| 你说 | 方向 |
-|------|------|
-| **全量字幕** | 全频道 caption fetch（分析仍限量） |
-| **PR-5** | 只读宏观桥 kickoff |
-| **ASR** | 缺字幕视频 |
-| **commit** | 审验报告 + CC 交卷文档入库 |
-| **停** | 本阶段结束，无新工单 |
+不要问「先做哪个」。按 kickoff A→B→C 执行到底，然后 `WAIT_CURSOR`。
 
 ### STATUS 枚举
 
