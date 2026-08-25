@@ -7,15 +7,17 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/DUAL_TRACK_PR5_ASR_KICKOFF_2026-08-25.md` P2b |
-| **事故** | 「data 清空」为 **误报**（见下） |
-| **更新** | 2026-08-25 Cursor |
+| **STATUS** | `WAIT_USER` |
+| **工单** | `reviews/DUAL_TRACK_PR5_ASR_KICKOFF_2026-08-25.md` P1+P2b 完成 |
+| **等** | 用户 WPS 稿 → 说 **"导入"** |
+| **报告** | `reviews/DUAL_TRACK_REPORT_2026-08-25.md` |
+| **测试** | 434 passed / SHA `4a8e409b…` ✅ |
+| **更新** | 2026-08-25 CC |
 
 ### 数据丢失裁定（Cursor 复验）
 
