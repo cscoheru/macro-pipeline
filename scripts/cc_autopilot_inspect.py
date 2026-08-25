@@ -51,9 +51,16 @@ EXPAND5E_IDS = (
     "1RUE50lei8c",
     "iCdyFpsEpdc",
 )
+EXPAND5F_IDS = (
+    "YgYGLz80_Gc",
+    "cjTaROCV1xw",
+    "OSri3YbeNhQ",
+    "fk8wwOg30-8",
+    "KfneDkfwYqw",
+)
 WATCH_IDS = (
     PILOT_IDS + EXPAND5_IDS + EXPAND5B_IDS + EXPAND5C_IDS
-    + EXPAND5D_IDS + EXPAND5E_IDS
+    + EXPAND5D_IDS + EXPAND5E_IDS + EXPAND5F_IDS
 )
 STALL_SEC = 25 * 60
 FROZEN_DEFAULT = (
