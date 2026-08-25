@@ -7,18 +7,25 @@
 ## 状态
 
 ```text
-STATUS=WAIT_CURSOR
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_CURSOR` |
-| **工单** | `reviews/SECTION26_BUNDLE_KICKOFF_2026-08-25.md` |
-| **授权** | 用户「全量字幕 / PR-5 / ASR」 |
-| **完成** | A(frozen 50, missing 79, pending 0) + B(GO_PILOT) + C(6 files ≤8) |
-| **报告** | `reviews/SECTION26_BUNDLE_REPORT_2026-08-25.md` |
-| **SHA** | `4a8e409b…` before == after ✅ |
-| **更新** | 2026-08-25 CC |
+| **STATUS** | `WAIT_USER` |
+| **审验** | `reviews/SECTION26_BUNDLE_ACCEPTANCE_2026-08-25.md` — **PASS** |
+| **说明** | A/B/C 交卷已过；等用户短词开下一刀 |
+| **更新** | 2026-08-25 Cursor |
+
+### 用户裁定门
+
+| 你说 | 方向 |
+|------|------|
+| **ASR试点** | 3 streams + faster-whisper（新 kickoff） |
+| **PR-5实现** | 按 `docs/plans/pr5-macro-bridge.md` 编码 |
+| **都做** | PR-5 实现 + ASR 试点（Cursor 排期后 DO） |
+| **停** | 无新工单 |
+| **commit** | 交卷/审验文档入库 |
 
 ### STATUS 枚举
 
