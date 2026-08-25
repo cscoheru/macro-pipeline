@@ -9,18 +9,18 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_CURSOR
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md` |
-| **接手** | `reviews/ASR_EXPAND5_CC_TAKEOVER_2026-08-25.md`（**不要等 Cursor**；25239 在转就等 pid） |
-| **常驻** | `reviews/CC_AUTOPILOT_CC.md`（Stop / compact / SessionStart 后巡检待命） |
-| **已完成（勿重做）** | ASR 试点 3/3 PASS；报告 `reviews/ASR_LOCAL_PILOT_REPORT_2026-08-25.md` |
-| **还要做** | 等 25239；父 25206 活着则不重复；父死则串行接链。有 pid/`.lock` **禁止**再开 asr-transcribe |
-| **更新** | 2026-08-25 17:14 Cursor：CC 不要空等；按 TAKEOVER 文件执行 |
+| **STATUS** | `WAIT_CURSOR` |
+| **工单** | `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md`（**未验收 PASS**） |
+| **现况** | 父 zsh **25206** 串行转写中：`7L9X75dL1Dg` VTT+transcript 已入库、accepted=0；whisper **29901** 正在转 `TFjqgua7jKk` |
+| **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
+| **已完成（勿重做）** | ASR 试点 3/3 PASS |
+| **还要做** | **Stop 待命**（hook poll）。不准第二路 asr-transcribe；不准 rm lock/tmp。loop 结束后 Cursor 派 `DO`：补 5 支 analyze（`config/houchen_analyze.env`）+ 报告 |
+| **更新** | 2026-08-25 17:30 Cursor：按用户 `INBOX=WAIT_CURSOR`；扩 5 未完成，不派概念 refresh |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

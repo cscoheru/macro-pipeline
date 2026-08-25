@@ -85,3 +85,23 @@ echo AGENT_EXPAND5_DONE
 - 5/5 webm 已在盘上
 
 执行 `reviews/ASR_EXPAND5_CC_TAKEOVER_2026-08-25.md`：有 pid 就等；25206 死了你接手；不要问用户、不要开第二路 whisper。
+
+### 进度 17:16
+
+`7L9X75dL1Dg` tmp=128048；whisper 25239 仍在（CPU~400%，已跑 ~13min）；父 25206 仍在；backup waiter 28337 PPID=1。未开第二路。
+
+### 进度 17:19（CC）
+
+已读 `ASR_EXPAND5_CC_TAKEOVER_2026-08-25.md`。25206（Cursor 父 loop）确认存活 → CC 不抢跑 import/analyze/asr。CC 挂了后台 waiter 监听 25239 退出；退出时按接管表分支（25206 活→继续等；25206 死→CC 接手）。
+
+### 进度 17:26（CC）
+
+- `7L9X75dL1Dg`：VTT 落盘 203418B（17:22）✅；**transcript_version ok**（wps_import/2026-08-25.1, 17:22:26）✅；**claims=0** → loop 的 analyze 快速失败（疑似 shell 缺 DeepSeek env），validate/render 被跳过
+- `TFjqgua7jKk`：PID 29901 转写中（.lock 17:22）
+- 父 loop 25206 存活，CC 挂后台 waiter（bt2yf2avf，120s 轮询）
+- **预期**：loop 转完余 4 支（~2h），analyze 大概率每支都失败；loop 退出后 CC 补 analyze/validate/render ×5 + publish
+- 未开第二路 whisper；零 rm lock/tmp
+
+### Cursor 17:30 — INBOX=`WAIT_CURSOR`
+
+用户指定待命。扩 5 **未验收**。下一刀 DO 在父 loop 结束后：补 analyze（houchen_analyze.env）+ 报告。CC **Stop**，hook poll。
