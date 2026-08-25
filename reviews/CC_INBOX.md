@@ -7,17 +7,16 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **刚完成** | 字幕 P1 + 扩竖切 + macro review — **PASS** |
-| **验收** | `reviews/CORPUS_EXPAND_ACCEPTANCE_2026-08-25.md` |
-| **摘要** | 39 视频 / 240 claims；20 macro evaluation；`95a1dcc` |
-| **下一工单** | 无；P3=WPS 导入后开；或概念 refresh |
-| **更新** | 2026-08-25 Cursor 审验 |
+| **STATUS** | `DO` |
+| **工单** | `reviews/CONCEPT_INCREMENTAL_REFRESH_KICKOFF_2026-08-25.md` |
+| **目标** | ~63 概念 re-render + publish（挂 accepted claim） |
+| **参考** | `docs/plans/transcript-alternatives.md`（WPS 替代方案，本工单不执行 ASR） |
+| **更新** | 2026-08-25 Cursor |
 
 ### STATUS 枚举
 

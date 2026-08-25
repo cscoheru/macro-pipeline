@@ -64,11 +64,16 @@ coverage --markdown
 
 **选片原则（文档化，不自动）:** 长直播、宏观/地缘主线、尚无 accepted claims 的 streams。
 
-### 轨 C — 残余（DEFER 机转写）
+### 轨 C — 本地 ASR（推荐替代 WPS 扩量）
 
-- brief §5.3 + 用户偏好：**不跑 faster-whisper**。  
-- `ASR_PREFLIGHT` 已 `GO_PILOT` → 已由 WPS 替代。  
-- 仅当用户显式改口才重开 ASR kickoff。
+- **零 LLM token**；成本为 CPU 时间（见 `docs/plans/transcript-alternatives.md`）。  
+- `ASR_PREFLIGHT` 已 `GO_PILOT`；3 支 WPS 作质量对照。  
+- 执行：`asr-transcribe` 试点（`--limit 3`，small 模型，**跳过 shorts**）→ 入库 → `analyze --video-id`。  
+- 用户短词「ASR试点」→ Cursor 开 impl kickoff。
+
+### 轨 D — WPS 人工（保留，非默认）
+
+- 关键 LIVE、ASR 疑难补洞；不作为批量扩量路径。
 
 ---
 
