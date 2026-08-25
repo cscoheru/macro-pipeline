@@ -1,7 +1,7 @@
 # PR-5 — Macro Bridge: 宏观数据 × HouChen Claims 交叉验证
 
 **Date:** 2026-08-25
-**Status:** Plan (no implementation)
+**Status:** Implemented (landed 2026-08-25)
 **Source of truth:** Brief §12 / §16 PR-5
 **上游依赖:** PR-3 (claim extraction) merged; PR-4 (research map) in progress
 

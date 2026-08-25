@@ -39,6 +39,8 @@ import houchen_runner  # noqa: E402
 import houchen_search  # noqa: E402  # PR-4 Phase 0: FTS5
 import houchen_status  # noqa: E402
 import houchen_store  # noqa: E402
+import macro_bridge  # noqa: E402  # PR-5: macro bridge
+import houchen_import_transcript  # noqa: E402  # PR-5 P2b: WPS import
 
 EXIT_OK = 0
 EXIT_RUNTIME = 1
@@ -697,6 +699,119 @@ def cmd_publish(args):
         conn.close()
 
 
+def cmd_macro_bridge(args):
+    """PR-5: macro bridge — link HouChen claims to macro observations."""
+    from pathlib import Path
+
+    db_path = houchen_paths.sqlite_path()
+    store_path = macro_bridge._MACRO_STORE_PATH
+
+    # --verify-sha: quick check, no DB work
+    if args.verify_sha:
+        expected = args.verify_sha
+        ok = macro_bridge.verify_store_sha(expected, store_path)
+        result = {"sha_match": ok, "expected": expected,
+                  "store_path": str(store_path)}
+        print(json.dumps(result, indent=2))
+        return EXIT_OK if ok else EXIT_RUNTIME
+
+    # --scan: scan accepted claims → produce candidates
+    if args.scan:
+        houchen_conn = sqlite3.connect(str(db_path))
+        houchen_conn.row_factory = sqlite3.Row
+        macro_conn = macro_bridge.open_macro_store_readonly(store_path)
+        try:
+            candidates = macro_bridge.scan_all(
+                houchen_conn, macro_conn,
+                keywords_path=Path(macro_bridge._KEYWORDS_PATH),
+            )
+            # Count by relation
+            relations = {}
+            for c in candidates:
+                relations[c.relation] = relations.get(c.relation, 0) + 1
+            result = {
+                "status": "success",
+                "claims_scanned": len(set(c.claim_id for c in candidates))
+                    if candidates else _count_accepted(houchen_conn),
+                "candidates_produced": len(candidates),
+                "relations": relations,
+            }
+            print(json.dumps(result, indent=2))
+            return EXIT_OK
+        except Exception as e:
+            print(f"macro-bridge scan failed: {e}", file=sys.stderr)
+            return EXIT_RUNTIME
+        finally:
+            macro_conn.close()
+            houchen_conn.close()
+
+    # --export: dump candidates to JSONL
+    if args.export:
+        output = Path(args.export)
+        houchen_conn = sqlite3.connect(str(db_path))
+        houchen_conn.row_factory = sqlite3.Row
+        try:
+            count = macro_bridge.export_jsonl(houchen_conn, output)
+            result = {"status": "success", "exported": count,
+                      "path": str(output)}
+            print(json.dumps(result, indent=2))
+            return EXIT_OK
+        except Exception as e:
+            print(f"macro-bridge export failed: {e}", file=sys.stderr)
+            return EXIT_RUNTIME
+        finally:
+            houchen_conn.close()
+
+    print("macro-bridge: specify --scan, --export, or --verify-sha",
+          file=sys.stderr)
+    return EXIT_USAGE
+
+
+def _count_accepted(conn: sqlite3.Connection) -> int:
+    """Count accepted claims in houchen DB."""
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM claim WHERE status='accepted'"
+    ).fetchone()
+    return row["cnt"] if row else 0
+
+
+def cmd_import_transcript(args):
+    """PR-5 P2b: import human-written transcript (WPS etc.)."""
+    from pathlib import Path
+
+    if not args.video_id:
+        print("import-transcript: --video-id is required", file=sys.stderr)
+        return EXIT_USAGE
+    if not args.from_file:
+        print("import-transcript: --from-file is required", file=sys.stderr)
+        return EXIT_USAGE
+
+    file_path = Path(args.from_file)
+    if not file_path.exists():
+        print(f"import-transcript: file not found: {file_path}",
+              file=sys.stderr)
+        return EXIT_RUNTIME
+
+    db_path = houchen_paths.sqlite_path()
+    conn = houchen_store.connect(db_path)
+    try:
+        result = houchen_import_transcript.import_transcript(
+            conn,
+            video_id=args.video_id,
+            file_path=file_path,
+            language=args.language or "zh",
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        if result.get("status") in ("success", "already_imported"):
+            return EXIT_OK
+        return EXIT_RUNTIME
+    except Exception as e:
+        print(f"import-transcript failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+    finally:
+        conn.close()
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="houchen_pipeline",
@@ -811,6 +926,26 @@ def build_parser():
     pcov = sub.add_parser("coverage", parents=[common])
     pcov.add_argument("--markdown", action="store_true")
 
+    # PR-5: macro bridge
+    pmb = sub.add_parser("macro-bridge", parents=[common],
+                         help="PR-5: link HouChen claims to macro observations")
+    pmb.add_argument("--scan", action="store_true",
+                     help="Scan accepted claims and produce link candidates")
+    pmb.add_argument("--export",
+                     help="Export candidates to JSONL at the given path")
+    pmb.add_argument("--verify-sha",
+                     help="Verify store.db SHA matches (hex string)")
+
+    # PR-5 P2b: import transcript
+    pit = sub.add_parser("import-transcript", parents=[common],
+                         help="PR-5 P2b: import human-written transcript (WPS)")
+    pit.add_argument("--video-id", required=True,
+                     help="YouTube video ID")
+    pit.add_argument("--from-file", required=True,
+                     help="Path to .txt/.vtt/.srt file")
+    pit.add_argument("--language", default="zh",
+                     help="Language code (default: zh)")
+
     return p
 
 
@@ -840,6 +975,10 @@ def main(argv=None):
         return cmd_status(args)
     if args.cmd == "coverage":
         return cmd_coverage(args)
+    if args.cmd == "macro-bridge":
+        return cmd_macro_bridge(args)
+    if args.cmd == "import-transcript":
+        return cmd_import_transcript(args)
     print(f"unknown command: {args.cmd}", file=sys.stderr)
     return EXIT_USAGE
 

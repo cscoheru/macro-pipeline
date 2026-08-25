@@ -1,0 +1,141 @@
+# Macro Bridge keyword mapping
+# Maps Chinese/English claim keywords → macro series in store.db observations
+# Used by lib/macro_bridge.py find_candidates()
+
+keywords:
+  # === CPI / 通胀 ===
+  CPI:
+    - "fred:CPIAUCSL"
+    - "fred:PCEPI"
+    - "cn_stats_cpi:cpi_yoy_yoy"
+    - "de_cpi:cpi_yoy"
+    - "de_cpi:cpi_mom_yoy"
+  通胀:
+    - "fred:CPIAUCSL"
+    - "fred:PCEPI"
+    - "cn_stats_cpi:cpi_yoy_yoy"
+    - "de_cpi:cpi_yoy"
+  物价:
+    - "fred:CPIAUCSL"
+    - "fred:PCEPI"
+    - "cn_stats_cpi:cpi_yoy_yoy"
+    - "de_ppi:ppi_yoy"
+  通缩:
+    - "fred:CPIAUCSL"
+    - "cn_stats_cpi:cpi_yoy_yoy"
+    - "cn_stats_ppi:ppi_yoy_yoy"
+
+  # === GDP ===
+  GDP:
+    - "fred:GDPC1"
+    - "de_gdp:gdp_yoy"
+    - "de_gdp:gdp_qoq_yoy"
+    - "jp_gdp:gdp_yoy"
+    - "jp_gdp:gdp_qoq_yoy"
+  经济增速:
+    - "fred:GDPC1"
+    - "de_gdp:gdp_yoy"
+    - "jp_gdp:gdp_yoy"
+  增长:
+    - "fred:GDPC1"
+    - "de_gdp:gdp_yoy"
+    - "jp_gdp:gdp_yoy"
+
+  # === 失业 ===
+  失业:
+    - "fred:UNRATE"
+    - "de_unrate:employment_yoy"
+  就业:
+    - "fred:PAYEMS"
+    - "fred:UNRATE"
+    - "de_unrate:employment_yoy"
+  unemployment:
+    - "fred:UNRATE"
+
+  # === 利率 / 货币 ===
+  利率:
+    - "fred:FEDFUNDS"
+    - "jp_policy:policy_rate"
+  降息:
+    - "fred:FEDFUNDS"
+    - "jp_policy:policy_rate"
+  加息:
+    - "fred:FEDFUNDS"
+    - "jp_policy:policy_rate"
+  货币政策:
+    - "fred:FEDFUNDS"
+    - "jp_policy:policy_rate"
+    - "cn_pbc:pbc_m2_yoy"
+
+  # === M2 / 货币供应 ===
+  M2:
+    - "cn_pbc:pbc_m2"
+    - "cn_pbc:pbc_m2_yoy"
+  M1:
+    - "cn_pbc:pbc_m1"
+    - "cn_pbc:pbc_m1_yoy"
+  货币供应:
+    - "cn_pbc:pbc_m2_yoy"
+    - "cn_pbc:pbc_m1_yoy"
+  社融:
+    - "cn_pbc:pbc_tsfs"
+    - "cn_pbc:pbc_tsfs_yoy"
+
+  # === 财政 ===
+  财政:
+    - "fred:GFDEBTN"
+    - "fred:FYFSD"
+    - "cn_mof:mof_revenue"
+    - "cn_mof:mof_revenue_yoy"
+    - "cn_mof:mof_expenditure"
+    - "cn_mof:mof_expenditure_yoy"
+  赤字:
+    - "fred:FYFSD"
+    - "cn_mof:mof_expenditure"
+    - "cn_mof:mof_revenue"
+  债务:
+    - "fred:GFDEBTN"
+  化债:
+    - "fred:GFDEBTN"
+    - "cn_mof:mof_govfund_exp"
+    - "cn_mof:mof_local_exp"
+  土地出让:
+    - "cn_mof:mof_land"
+    - "cn_mof:mof_land_yoy"
+
+  # === PMI ===
+  PMI:
+    - "cn_stats_pmi:pmi_mfg"
+  制造业:
+    - "cn_stats_pmi:pmi_mfg"
+
+  # === PPI ===
+  PPI:
+    - "cn_stats_ppi:ppi_yoy_yoy"
+    - "de_ppi:ppi_yoy"
+    - "de_ppi:ppi_mom_yoy"
+    - "jp_ppi:cgpi_mom_yoy"
+  工业品价格:
+    - "cn_stats_ppi:ppi_yoy_yoy"
+
+  # === 固投 ===
+  固定投资:
+    - "cn_stats_inv:inv_total_yoy"
+    - "cn_stats_inv:inv_infra_yoy"
+    - "cn_stats_inv:inv_private_yoy"
+  基建:
+    - "cn_stats_inv:inv_infra_yoy"
+  民间投资:
+    - "cn_stats_inv:inv_private_yoy"
+
+  # === 贸易 (no direct macro series; contextualizes) ===
+  贸易战: []
+  关税: []
+  贸易: []
+
+# Economy mapping for relation assessment
+economy_keywords:
+  us: ["美国", "美联储", "Fed", "美国"]
+  cn: ["中国", "央行", "国务院", "财政部"]
+  jp: ["日本", "日银", "BOJ"]
+  de: ["德国", "Destatis"]
