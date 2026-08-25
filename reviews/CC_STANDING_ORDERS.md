@@ -13,6 +13,7 @@
 3. 若 inbox 有未完成工单：**直接执行**，不要问「要不要做」。
 4. 只有 §5「用户裁定门」才向用户提问；其余停顿对象是 **Cursor（via HANDOFF）**，不是用户。
 5. 用户若只发「？」「在吗」「进度」→ 你回复一句状态，并**立刻**再扫 `reviews/` 继续可执行工单。
+6. **压缩 / compact 之后禁止 idle。** 立刻执行 `reviews/CC_AUTOPILOT_CC.md`。
 
 ---
 
@@ -126,3 +127,4 @@ Cursor 会：
 |------|------|
 | 2026-08-24 | 初版 |
 | 2026-08-25 | Autopilot：禁止第二路 ASR；`reviews/CC_AUTOPILOT.md` |
+| 2026-08-25 | compact/Stop 后待命：`reviews/CC_AUTOPILOT_CC.md` |

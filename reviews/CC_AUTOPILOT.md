@@ -34,6 +34,10 @@ python3 scripts/cc_autopilot_inspect.py
 
 本地 loop：每 120s 跑 inspect；**仅 `severity=ACTION` 叫醒**。`WARN`（如 store SHA 漂移）只打进 STATE，每 30min 心跳一次。已停旧的 8min `houchen_supervisor` loop。
 
+## Claude Code 侧
+
+压缩后禁止 idle。命令：`reviews/CC_AUTOPILOT_CC.md`。Stop / SessionStart / PreCompact hook 会注入同一段巡检。
+
 ## Hook
 
 - Cursor：`.cursor/hooks.json` → `cc_asr_guard.py --harness cursor`

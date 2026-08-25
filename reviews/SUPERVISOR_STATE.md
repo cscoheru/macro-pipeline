@@ -1,7 +1,6 @@
-# Supervisor state — 2026-08-25 16:42
+# Supervisor state — 2026-08-25 16:55
 
-试点 PASS，已派扩 5。INBOX=`DO` `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md`。
+已向 CC 下达 Autopilot 待命。INBOX=`DO` 扩 5 + 常驻 `CC_AUTOPILOT_CC.md`。
 
-- 101/100/099 accepted = 7 / 16 / 7
-- Autopilot loop：仅 ACTION 叫醒（PID 见本机 2m loop）
-- store SHA `0c0cfbc5…` ≠ 冻结值（WARN，未回滚）
+- compact / Stop 后禁止 idle；watch_until 延至 2026-08-27T16:00Z
+- 扩 5 仍未开转（asr_n=0）则等 CC pull

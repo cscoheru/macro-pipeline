@@ -35,13 +35,13 @@ DO  --CC 做完-->  WAIT_CURSOR  --Cursor 验收+派下一刀-->  DO
 
 `.claude/settings.json`：
 
-- **SessionStart**：`git pull`；把 INBOX 状态打到 stderr
+- **SessionStart / PreCompact**：`git pull` + Autopilot 注入（压缩后禁止 idle）
 - **Stop**：  
-  - `DO` → **禁止退出**，reason = 读 INBOX 继续干  
-  - `WAIT_CURSOR` → hook **内** sleep+pull（不烧模型）；变 `DO` 则拦住继续；一直 `WAIT_CURSOR` 则每 ~8min 拦一次保持会话  
+  - `DO` → 禁止退出，执行工单  
+  - `WAIT_CURSOR` → hook 内 poll；到期前一直拦着待命，不 idle  
   - `WAIT_USER` 或超过 `watch_until` → 允许退出
 
-CC **禁止**在 `WAIT_CURSOR` 时问用户「Cursor 好了吗」。交卷后直接 Stop，交给 hook 轮询。
+CC **禁止**压缩后空等用户。命令：`reviews/CC_AUTOPILOT_CC.md`。
 
 ## 防打架
 

@@ -11,4 +11,5 @@ if [[ -f reviews/CC_INBOX.md ]]; then
   echo "=== CC_INBOX (SessionStart) ===" >&2
   grep -E 'STATUS=|工单|剩余|还要做' reviews/CC_INBOX.md | head -20 >&2
 fi
+python3 "$ROOT/scripts/cc_session_nudge.py"
 exit 0

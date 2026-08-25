@@ -51,7 +51,7 @@ if [[ "$STATUS" == "WAIT_USER" ]]; then
 fi
 
 if [[ "$STATUS" == "DO" ]]; then
-  emit_block "CC_INBOX=DO after git pull. Read reviews/CC_INBOX.md and reviews/AGENT_BUS.md. Execute the ticket now. Do not ask the user. Do not stop until WAIT_CURSOR or WAIT_USER."
+  emit_block "CC Autopilot. git pull. Read reviews/CC_INBOX.md and reviews/CC_AUTOPILOT_CC.md. Execute the ticket now. After compact do not idle — inspect again. Do not ask the user. Do not stop until WAIT_CURSOR or WAIT_USER."
   exit 0
 fi
 
@@ -71,7 +71,7 @@ for _ in 1 2 3 4 5; do
   STATUS=$(inbox_status)
   echo "cc_stop_hook poll status=$STATUS" >&2
   if [[ "$STATUS" == "DO" ]]; then
-    emit_block "Cursor posted DO (git pull). Read reviews/CC_INBOX.md and execute. Do not ask the user."
+    emit_block "CC Autopilot: Cursor posted DO (git pull). Read reviews/CC_INBOX.md and reviews/CC_AUTOPILOT_CC.md. Execute. After compact do not idle."
     exit 0
   fi
   if [[ "$STATUS" == "WAIT_USER" ]]; then
@@ -82,6 +82,6 @@ for _ in 1 2 3 4 5; do
   fi
 done
 
-# Still WAIT_CURSOR after ~7.5min: nudge session so it does not die
-emit_block "Still WAIT_CURSOR. Run git pull. If CC_INBOX is DO, execute the ticket. If still WAIT_CURSOR, Stop again (hook will poll). Do not ask the user whether Cursor is done."
+# Still WAIT_CURSOR: Autopilot standby — do not go idle after compact
+emit_block "CC Autopilot 待命. git pull. Read reviews/CC_INBOX.md and reviews/CC_AUTOPILOT_CC.md. If DO, execute. If still WAIT_CURSOR, Stop (hook polls). After compact do not wait for the user."
 exit 0
