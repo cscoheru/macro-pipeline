@@ -15,11 +15,11 @@ STATUS=WAIT_USER
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `WAIT_USER` |
-| **工单** | 扩 5 analyze **已跑完 5/5 DeepSeek**（用户：token 太快，停） |
+| **工单** | 扩 5 本地收尾完成；报告 `reviews/ASR_EXPAND5_REPORT_2026-08-25.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | ASR+import 5/5；analyze 5/5 **禁止再跑 DeepSeek** |
-| **还要** | 本地 render/publish 不耗 DeepSeek；或到此为止。**不准**再 `--provider deepseek` |
-| **更新** | 2026-08-25 19:17 Cursor：用户叫停花费；INBOX 离开 DO |
+| **已完成** | ASR 试点；扩 5 转写+import+analyze；video render/publish；78 概念本地 refresh。**禁止再 DeepSeek** |
+| **队列** | **空** |
+| **更新** | 2026-08-25 19:24 Cursor：本地收尾交卷 |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

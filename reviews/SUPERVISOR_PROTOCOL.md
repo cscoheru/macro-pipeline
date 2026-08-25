@@ -26,6 +26,6 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 ## 当前计划队列（完成后划掉）
 
 1. [x] ASR 试点 3 streams 交卷并验收  
-2. [ ] 若 PASS：ASR 扩 5 streams（非 shorts、非已有字幕）— **转写+import 5/5**；analyze 待补  
-3. [ ] 概念页若 accepted 又增：增量 refresh  
-4. [ ] 队列空 → 停 loop
+2. [x] ASR 扩 5 streams（转写+import 5/5；analyze 5/5；本地 render/publish）  
+3. [x] 概念页增量 refresh（78 render / 89 publish，无 LLM）  
+4. [x] 队列空 → 停 loop
