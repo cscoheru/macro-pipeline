@@ -105,3 +105,7 @@ echo AGENT_EXPAND5_DONE
 ### Cursor 17:30 — INBOX=`WAIT_CURSOR`
 
 用户指定待命。扩 5 **未验收**。下一刀 DO 在父 loop 结束后：补 analyze（houchen_analyze.env）+ 报告。CC **Stop**，hook poll。
+
+### Cursor 18:58 — `AGENT_EXPAND5_DONE`
+
+5/5 转写+import 成功；analyze 5/5 失败（`model=""`）。store SHA 未变。INBOX=`DO` → `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md`。禁止再 asr-transcribe。
