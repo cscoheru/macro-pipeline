@@ -318,6 +318,7 @@ def scan_all(
     """Scan all accepted HouChen claims and produce macro link candidates.
 
     Writes candidates to houchen.db macro_link_candidate table.
+    Idempotent: skips existing (claim_id, macro_source, macro_series, macro_period).
     """
     keywords = load_keywords(keywords_path)
     observations = fetch_latest_observations(macro_conn)
@@ -340,17 +341,24 @@ def scan_all(
         )
         all_candidates.extend(candidates)
 
-    # Write to houchen.db
+    # Write to houchen.db with dedupe
     if all_candidates:
         _ensure_table(houchen_conn)
-        houchen_conn.executemany(
-            """INSERT INTO macro_link_candidate
-               (candidate_id, claim_id, macro_source, macro_series,
-                macro_period, macro_value, relation, confidence, reasoning,
-                created_at, method, reviewed)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            [c.to_row() for c in all_candidates],
-        )
+        new_count = 0
+        for c in all_candidates:
+            try:
+                houchen_conn.execute(
+                    """INSERT INTO macro_link_candidate
+                       (candidate_id, claim_id, macro_source, macro_series,
+                        macro_period, macro_value, relation, confidence, reasoning,
+                        created_at, method, reviewed)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    c.to_row(),
+                )
+                new_count += 1
+            except sqlite3.IntegrityError:
+                # Dedupe: same (claim_id, macro_source, macro_series, macro_period)
+                pass
         houchen_conn.commit()
 
     return all_candidates
@@ -469,3 +477,129 @@ def import_to_evaluation(
     )
     houchen_conn.commit()
     return evaluation_id
+
+
+# ---------------------------------------------------------------------------
+# Review workflow
+# ---------------------------------------------------------------------------
+
+def review_queue(
+    houchen_conn: sqlite3.Connection,
+    limit: int | None = None,
+    reviewed: bool = False,
+) -> list[dict]:
+    """Export review queue.
+
+    Args:
+        reviewed: if False, only unreviewed candidates; if True, all reviewed.
+
+    Returns: list of candidate dicts joined with claim snippet.
+    """
+    where = "WHERE mlc.reviewed=0" if not reviewed else ""
+    sql = f"""
+        SELECT
+            mlc.candidate_id, mlc.claim_id, mlc.macro_source, mlc.macro_series,
+            mlc.macro_period, mlc.macro_value, mlc.relation, mlc.confidence,
+            mlc.reasoning, mlc.reviewed,
+            substr(cl.claim_text, 1, 80) AS claim_snippet
+        FROM macro_link_candidate mlc
+        JOIN claim cl ON mlc.claim_id = cl.claim_id
+        {where}
+        ORDER BY mlc.created_at
+    """
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    rows = houchen_conn.execute(sql).fetchall()
+
+    keys = ("candidate_id", "claim_id", "macro_source", "macro_series",
+            "macro_period", "macro_value", "relation", "confidence",
+            "reasoning", "reviewed", "claim_snippet")
+    result = []
+    for row in rows:
+        if hasattr(row, "keys"):
+            d = dict(row)
+        else:
+            d = dict(zip(keys, row))
+        result.append(d)
+    return result
+
+
+def mark_reviewed(
+    houchen_conn: sqlite3.Connection,
+    candidate_id: str,
+    relation: str | None = None,
+) -> int:
+    """Mark a candidate as reviewed; optionally update relation.
+
+    Returns: 1 if updated, 0 if not found, raises if relation invalid.
+    """
+    valid_relations = ("supports", "challenges", "contextualizes", "unresolved")
+    if relation and relation not in valid_relations:
+        raise ValueError(f"Invalid relation: {relation}. Must be one of {valid_relations}")
+
+    if relation:
+        cursor = houchen_conn.execute(
+            "UPDATE macro_link_candidate SET reviewed=1, relation=? WHERE candidate_id=?",
+            (relation, candidate_id),
+        )
+    else:
+        cursor = houchen_conn.execute(
+            "UPDATE macro_link_candidate SET reviewed=1 WHERE candidate_id=?",
+            (candidate_id,),
+        )
+    houchen_conn.commit()
+    return cursor.rowcount
+
+
+def import_reviewed(
+    houchen_conn: sqlite3.Connection,
+    limit: int | None = None,
+) -> list[str]:
+    """Import all reviewed candidates that haven't been imported yet.
+
+    A candidate is considered "imported" if an evaluation row exists for it
+    with evaluator='macro_bridge'.
+
+    Returns: list of evaluation_ids created.
+    """
+    sql = """
+        SELECT mlc.candidate_id, mlc.claim_id, mlc.macro_source, mlc.macro_series,
+               mlc.macro_period, mlc.macro_value, mlc.relation, mlc.confidence,
+               mlc.reasoning
+        FROM macro_link_candidate mlc
+        WHERE mlc.reviewed=1
+          AND NOT EXISTS (
+            SELECT 1 FROM evaluation ev
+            WHERE ev.target_id=mlc.claim_id AND ev.evaluator='macro_bridge'
+          )
+        ORDER BY mlc.created_at
+    """
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    rows = houchen_conn.execute(sql).fetchall()
+
+    evaluation_ids = []
+    keys = ("candidate_id", "claim_id", "macro_source", "macro_series",
+            "macro_period", "macro_value", "relation", "confidence",
+            "reasoning")
+    for row in rows:
+        # Support both Row (dict-like) and tuple
+        if hasattr(row, "keys"):
+            d = dict(row)
+        else:
+            d = dict(zip(keys, row))
+        c = MacroLinkCandidate(
+            candidate_id=d["candidate_id"],
+            claim_id=d["claim_id"],
+            macro_source=d["macro_source"],
+            macro_series=d["macro_series"],
+            macro_period=d["macro_period"],
+            macro_value=d["macro_value"],
+            relation=d["relation"],
+            confidence=d["confidence"],
+            reasoning=d["reasoning"],
+        )
+        eval_id = import_to_evaluation(c, houchen_conn)
+        evaluation_ids.append(eval_id)
+
+    return evaluation_ids

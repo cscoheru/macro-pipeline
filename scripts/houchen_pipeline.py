@@ -745,6 +745,66 @@ def cmd_macro_bridge(args):
             macro_conn.close()
             houchen_conn.close()
 
+    # --review-queue: export unreviewed candidates
+    if args.review_queue is not None:
+        houchen_conn = sqlite3.connect(str(db_path))
+        houchen_conn.row_factory = sqlite3.Row
+        try:
+            queue = macro_bridge.review_queue(
+                houchen_conn,
+                limit=args.review_queue,
+                reviewed=False,
+            )
+            if args.review_queue_md:
+                # Markdown format
+                print("# Macro Bridge Review Queue\n")
+                for c in queue:
+                    print(f"- `{c['candidate_id']}` | {c['claim_id'][:12]}… | "
+                          f"{c['macro_source']}/{c['macro_series']} | "
+                          f"{c['relation']} | reviewed={c['reviewed']}")
+                    print(f"  - claim: {c['claim_snippet']}")
+            else:
+                print(json.dumps(queue, indent=2, ensure_ascii=False))
+            return EXIT_OK
+        finally:
+            houchen_conn.close()
+
+    # --mark-reviewed: mark candidate(s) as reviewed
+    if args.mark_reviewed:
+        houchen_conn = sqlite3.connect(str(db_path))
+        try:
+            ids = args.mark_reviewed
+            relation = args.relation
+            results = []
+            for cid in ids:
+                rowcount = macro_bridge.mark_reviewed(
+                    houchen_conn, cid, relation=relation
+                )
+                results.append({"candidate_id": cid, "updated": rowcount})
+            print(json.dumps(results, indent=2))
+            return EXIT_OK
+        except Exception as e:
+            print(f"mark-reviewed failed: {e}", file=sys.stderr)
+            return EXIT_RUNTIME
+        finally:
+            houchen_conn.close()
+
+    # --import-reviewed: import reviewed candidates to evaluation
+    if args.import_reviewed:
+        houchen_conn = sqlite3.connect(str(db_path))
+        try:
+            ids = macro_bridge.import_reviewed(
+                houchen_conn, limit=args.import_reviewed
+            )
+            print(json.dumps({"imported": len(ids), "evaluation_ids": ids},
+                            indent=2))
+            return EXIT_OK
+        except Exception as e:
+            print(f"import-reviewed failed: {e}", file=sys.stderr)
+            return EXIT_RUNTIME
+        finally:
+            houchen_conn.close()
+
     # --export: dump candidates to JSONL
     if args.export:
         output = Path(args.export)
@@ -935,6 +995,20 @@ def build_parser():
                      help="Export candidates to JSONL at the given path")
     pmb.add_argument("--verify-sha",
                      help="Verify store.db SHA matches (hex string)")
+    pmb.add_argument("--review-queue", type=int, nargs="?", const=0, default=None,
+                     metavar="LIMIT",
+                     help="Export unreviewed candidates (optional limit)")
+    pmb.add_argument("--review-queue-md", action="store_true",
+                     help="Output review queue as Markdown")
+    pmb.add_argument("--mark-reviewed", action="append",
+                     metavar="CANDIDATE_ID",
+                     help="Mark candidate as reviewed (repeatable)")
+    pmb.add_argument("--relation",
+                     choices=["supports", "challenges", "contextualizes", "unresolved"],
+                     help="Override relation when marking reviewed")
+    pmb.add_argument("--import-reviewed", type=int, nargs="?", const=0,
+                     default=None, metavar="LIMIT",
+                     help="Import reviewed candidates to evaluation")
 
     # PR-5 P2b: import transcript
     pit = sub.add_parser("import-transcript", parents=[common],

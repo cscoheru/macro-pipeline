@@ -1,0 +1,52 @@
+# Macro Bridge Review Queue
+
+- `mlc_01a036c8-2c72-71f9-a6db-b8fef4d529cd` | hccl_01a033c… | fred/GFDEBTN | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b8ff55654bf5` | hccl_01a033c… | fred/FYFSD | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9001dd4a733` | hccl_01a033c… | cn_mof/mof_revenue | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9013cb4a3b8` | hccl_01a033c… | cn_mof/mof_revenue_yoy | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b902ffe1bf73` | hccl_01a033c… | cn_mof/mof_expenditure | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9035085084b` | hccl_01a033c… | cn_mof/mof_expenditure_yoy | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b904a0839089` | hccl_01a033c… | fred/GFDEBTN | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b905eb9f1e9e` | hccl_01a033c… | fred/FYFSD | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9068f046c74` | hccl_01a033c… | cn_mof/mof_revenue | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9079c1f732c` | hccl_01a033c… | cn_mof/mof_revenue_yoy | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9087fa3780a` | hccl_01a033c… | cn_mof/mof_expenditure | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9091331eb9f` | hccl_01a033c… | cn_mof/mof_expenditure_yoy | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b90a23d7ce8f` | hccl_01a033c… | fred/GFDEBTN | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b90b4c3ae856` | hccl_01a033c… | fred/FYFSD | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b90c5ef6c5a8` | hccl_01a033c… | cn_mof/mof_revenue | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b90dc20c5462` | hccl_01a033c… | cn_mof/mof_revenue_yoy | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b90e0ee2bbee` | hccl_01a033c… | cn_mof/mof_expenditure | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b90f1d34840e` | hccl_01a033c… | cn_mof/mof_expenditure_yoy | contextualizes | reviewed=0
+  - claim: 中央财政需扩大对地方转移支付的力度。
+- `mlc_01a036c8-2c72-71f9-a6db-b9102054590e` | hccl_01a0369… | fred/GFDEBTN | contextualizes | reviewed=0
+  - claim: 中国今年财政出了问题
+- `mlc_01a036c8-2c72-71f9-a6db-b91110ec8c6d` | hccl_01a0369… | fred/FYFSD | contextualizes | reviewed=0
+  - claim: 中国今年财政出了问题
+- `mlc_01a036c8-2c72-71f9-a6db-b9124d669c7a` | hccl_01a0369… | cn_mof/mof_revenue | contextualizes | reviewed=0
+  - claim: 中国今年财政出了问题
+- `mlc_01a036c8-2c72-71f9-a6db-b9131c949576` | hccl_01a0369… | cn_mof/mof_revenue_yoy | contextualizes | reviewed=0
+  - claim: 中国今年财政出了问题
+- `mlc_01a036c8-2c72-71f9-a6db-b9147f0a079b` | hccl_01a0369… | cn_mof/mof_expenditure | contextualizes | reviewed=0
+  - claim: 中国今年财政出了问题
+- `mlc_01a036c8-2c72-71f9-a6db-b915384b4fde` | hccl_01a0369… | cn_mof/mof_expenditure_yoy | contextualizes | reviewed=0
+  - claim: 中国今年财政出了问题
+- `mlc_01a036c8-2c72-71f9-a6db-b91651b0a2da` | hccl_01a0369… | fred/GFDEBTN | contextualizes | reviewed=0
+  - claim: 今年的地方财政非常非常的糟糕
