@@ -1,6 +1,5 @@
-# Supervisor state — 2026-08-25 18:58
+# Supervisor state — 2026-08-25 19:01
 
-INBOX=`DO` 补 analyze。`AGENT_EXPAND5_DONE`：5/5 VTT+transcript；analyze 全失败（accepted=0）；FAIL_COUNT=5。store SHA 未变。未开第二路 whisper。
+INBOX=`WAIT_USER`。扩 5 ASR+import 5/5；analyze DeepSeek **HTTP 402 Insufficient Balance**。未验收 PASS。inspect 已改：已有 transcript 不再 `finish_import_analyze`。
 
-工单：`reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md`
 STORE=`0c0cfbc5cb524f03ef6a208cef4b60b55731afcc360f848d7115e57e3d090a27`

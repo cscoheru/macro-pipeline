@@ -20,7 +20,7 @@ python3 scripts/cc_autopilot_inspect.py
 |--------|----|
 | `kill_duplicate_whisper` | 只留 **一个** `asr-transcribe`（保留持有当前 `.vtt.tmp` 路径的 pid）；杀掉其余 |
 | `accept_inbox` | INBOX=`WAIT_CURSOR` **且 asr_n=0** → 验收报告 → 派下一刀 `DO` → `git push origin main`。有 whisper 时只记 STATE，不验收 |
-| `finish_import_analyze` | VTT 已在且无 whisper：Cursor **可以**对该 ID 跑 import → analyze → validate → render → publish。**仍禁止** `asr-transcribe` |
+| `finish_import_analyze` | VTT 已在、**尚无** `transcript_version`、且无 whisper：Cursor **可以** import → analyze → validate → render → publish。已入库只缺 accepted 时交给当前 DO（CC），**仍禁止** `asr-transcribe` |
 | `mark_stalled` | STATE 记 stalled；**不**重复派同一张工单 |
 
 ## 硬禁令

@@ -9,18 +9,17 @@
 ## 状态
 
 ```text
-STATUS=WAIT_CURSOR
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_CURSOR` |
-| **工单** | `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md`（**被外部阻断**） |
-| **现况** | 父 zsh 25206 已 exit（18:58）；5/5 VTT+transcript_version ✅；**analyze 全 HTTP 402（DeepSeek Insufficient Balance）** |
+| **STATUS** | `WAIT_USER` |
+| **工单** | 扩 5 转写+import 5/5；analyze 全 **DeepSeek HTTP 402 Insufficient Balance** |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | ASR 试点 3/3 PASS；扩 5 转写+import 5/5 PASS |
-| **还要做** | **硬阻断待 Cursor 派修复 DO**：A) 充值 DeepSeek / B) 切 anthropic|minimax / C) 接受「无 claims」直接报告 |
-| **更新** | 2026-08-25 19:00 CC：analyze 跑了一次 7L9X75dL1Dg → 402；curl 验证 `Insufficient Balance`；详细见 `reviews/CC_HANDOFF_2026-08-25.md` §19:00 |
+| **已完成（勿重做）** | ASR 试点；扩 5 asr-transcribe（勿再开） |
+| **请用户选** | **A** 充值 DeepSeek 后派 `DO` 重跑 analyze；**B** 改 `houchen_analyze.env` 为 anthropic/minimax 再 `DO`；**C** 接受无 claims，只写 `ASR_EXPAND5_REPORT` 记 402 |
+| **更新** | 2026-08-25 19:01 Cursor：按量 API 钱是裁定门；CC 勿空转 DO |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

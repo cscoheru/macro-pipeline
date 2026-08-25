@@ -105,6 +105,24 @@ def frozen_store_sha(state: dict) -> str:
     return (state.get("store_sha_frozen") or FROZEN_DEFAULT).strip()
 
 
+def transcript_ok_count(root: Path, video_id: str) -> int:
+    db = root / "data" / "houchen" / "houchen.sqlite3"
+    if not db.exists():
+        return -1
+    import sqlite3
+    conn = sqlite3.connect(str(db))
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM transcript_version "
+            "WHERE video_id=? AND status='ok'",
+            (video_id,)).fetchone()
+        return int(row[0]) if row else 0
+    except sqlite3.OperationalError:
+        return -1
+    finally:
+        conn.close()
+
+
 def accepted_count(root: Path, video_id: str) -> int:
     db = root / "data" / "houchen" / "houchen.sqlite3"
     if not db.exists():
@@ -182,7 +200,8 @@ def inspect(root: Path | None = None) -> dict:
         for vid, inf in vtts.items():
             vtt = inf.get("vtt")
             if vtt and vtt["bytes"] > 32 and not inf.get("tmp"):
-                if accepted_count(root, vid) == 0:
+                if (transcript_ok_count(root, vid) == 0
+                        and accepted_count(root, vid) == 0):
                     pending.append(vid)
     sev, actions, line = classify(inbox, pids, vtts, store_ok, pending)
     return {

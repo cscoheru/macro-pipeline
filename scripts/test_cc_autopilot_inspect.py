@@ -89,6 +89,35 @@ def test_extract_command_cursor_and_claude():
         {"tool_input": {"command": "ls"}}) == "ls"
 
 
+def test_inspect_skips_pending_when_transcript_already_ok(
+        tmp_path: Path, monkeypatch):
+    reviews = tmp_path / "reviews"
+    reviews.mkdir()
+    (reviews / "CC_INBOX.md").write_text("STATUS=DO\n", encoding="utf-8")
+    (reviews / "bus").mkdir()
+    (reviews / "bus" / "state.json").write_text("{}", encoding="utf-8")
+    vtt_dir = tmp_path / "data" / "houchen" / "asr" / "vtt"
+    vtt_dir.mkdir(parents=True)
+    (vtt_dir / "7L9X75dL1Dg.vtt").write_text("WEBVTT\n\n" + ("x" * 40))
+    db = tmp_path / "data" / "houchen" / "houchen.sqlite3"
+    import sqlite3
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE transcript_version "
+        "(transcript_version_id TEXT, video_id TEXT, status TEXT)")
+    conn.execute(
+        "CREATE TABLE claim (claim_id TEXT, video_id TEXT, status TEXT)")
+    conn.execute(
+        "INSERT INTO transcript_version VALUES ('t1','7L9X75dL1Dg','ok')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("CC_AUTOPILOT_ROOT", str(tmp_path))
+    monkeypatch.setenv("CC_AUTOPILOT_PIDS", "")
+    monkeypatch.setenv("CC_AUTOPILOT_STORE", str(tmp_path / "missing.db"))
+    report = inspect.inspect(tmp_path)
+    assert "finish_import_analyze" not in report["actions"]
+
+
 def test_inspect_uses_env_pids(tmp_path: Path, monkeypatch):
     inbox = tmp_path / "reviews"
     inbox.mkdir()
