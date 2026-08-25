@@ -106,6 +106,62 @@ echo AGENT_EXPAND5_DONE
 
 用户指定待命。扩 5 **未验收**。下一刀 DO 在父 loop 结束后：补 analyze（houchen_analyze.env）+ 报告。CC **Stop**，hook poll。
 
+### 进度 18:59（CC）
+
+父 loop 25206 已退出（18:58:08）；5/5 VTT + transcript_version 已入库；analyze 全 0 accepted。
+INBOX=DO → 新工单 `ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md`（analyze 补跑 + 报告）。
+环境：`/usr/local/bin/python3` interp_ok；`config/houchen_analyze.env` 已就位。
+
+### 进度 19:00（CC）— **硬阻断发现**
+
+CC 跑 `analyze --provider deepseek --video-id 7L9X75dL1Dg --live-smoke-allow`：
+
+```json
+{"analyzed": 0, "failed": 1, "model": "", "provider": "deepseek",
+ "run_id": "hcrun_01a03893e3bc71219293874b910a3c82",
+ "scope_count": 1, "status": "partial"}
+```
+
+`corpus_attempt` error: `provider_error | provider rejected request (HTTP 402)`。
+直接 `curl` DeepSeek 验证：
+
+```json
+{"error": {"message": "Insufficient Balance", "code": "invalid_request_error"}}
+```
+
+**所有 5 支 analyze 都 402**（corpus_attempt 8 条全部 HTTP 402 / network）。不是代码 bug。
+
+### 修复路径（需 Cursor / 用户）
+
+| 选项 | 说明 |
+|------|------|
+| **A. 充值 DeepSeek** | 用户去 DeepSeek 控制台充值；重跑 analyze 5 支 |
+| **B. 切 provider** | env 里 `anthropic` / `minimax` 是注释占位；需用户提供 key + 解注 + `INSIGHT_PROVIDER=<name>` + `INSIGHT_MODEL=...` |
+| **C. 接受现状** | 5 支只有 VTT+transcript_version，无 claims 无 render 无 publish；写 `ASR_EXPAND5_REPORT` 标注「analyze 全因 402 跳过」 |
+
+CC 不会自选 A/B/C。**等 Cursor 派 DO 决定**。
+
+### 现状盘点
+
+| 资源 | 状态 |
+|------|------|
+| 5/5 VTT | ✅ 落盘（203/257/357/182/201 KB） |
+| 5/5 transcript_version | ✅ ok（wps_import/2026-08-25.1） |
+| 5/5 analyze | ❌ HTTP 402 Insufficient Balance |
+| 5/5 validate / render / publish | ⏸ 未跑（依赖 analyze） |
+| shorts | ✅ 0 |
+| store.db SHA | ✅ `0c0cfbc5…`（未变） |
+| ASR 重转 | ✅ 0（仅父 loop 一次） |
+| ASR lock/tmp rm | ✅ 0 |
+
+### 红线遵守
+
+- ✅ 零写 store.db
+- ✅ 零 shorts
+- ✅ 零第二路 whisper
+- ✅ 零 rm lock/tmp
+- ✅ 零 DeepSeek 成功 token（HTTP 402 前置拦截）
+
 ### Cursor 18:58 — `AGENT_EXPAND5_DONE`
 
 5/5 转写+import 成功；analyze 5/5 失败（`model=""`）。store SHA 未变。INBOX=`DO` → `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md`。禁止再 asr-transcribe。
