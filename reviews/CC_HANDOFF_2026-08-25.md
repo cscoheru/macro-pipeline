@@ -165,3 +165,7 @@ CC 不会自选 A/B/C。**等 Cursor 派 DO 决定**。
 ### Cursor 18:58 — `AGENT_EXPAND5_DONE`
 
 5/5 转写+import 成功；analyze 5/5 失败（`model=""`）。store SHA 未变。INBOX=`DO` → `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md`。禁止再 asr-transcribe。
+
+### Cursor 19:12 — 用户选 A
+
+重试 DeepSeek analyze。INBOX=`DO` 同一工单。仍 402 则交卷，勿死循环。
