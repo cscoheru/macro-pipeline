@@ -15,11 +15,11 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **工单** | `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md` |
+| **工单** | `reviews/ASR_EXPAND5C_KICKOFF_2026-08-26.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5 转写+analyze；本地收尾。**禁止 DeepSeek** |
-| **还要做** | 再扩 5 streams：asr-transcribe → import → render → publish。有 pid/lock 禁止第二路 |
-| **更新** | 2026-08-25 21:46 Cursor：用户要求按计划继续；卡住点（花钱）跳过 analyze |
+| **已完成（勿重做）** | 试点 3；扩 5；扩 5b 转写+import 5/5。**禁止 DeepSeek** |
+| **还要做** | 再扩 5c streams：asr-transcribe → import。有 pid/lock 禁止第二路。render 无 analyze 会拒，记 DEFER |
+| **更新** | 2026-08-26 00:33 Cursor：5b PASS，按计划续 5c |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

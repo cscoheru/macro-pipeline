@@ -2,8 +2,8 @@
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
   "inbox_status": "DO",
-  "ticket": "reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md",
+  "ticket": "reviews/ASR_EXPAND5C_KICKOFF_2026-08-26.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 13,
-  "note": "DO: ASR expand-5b local only; no DeepSeek; user said keep going"
+  "cursor_seq": 14,
+  "note": "DO: ASR expand-5c local only; no DeepSeek; 5b PASS 5/5 import"
 }

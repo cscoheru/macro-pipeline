@@ -173,3 +173,24 @@ CC 不会自选 A/B/C。**等 Cursor 派 DO 决定**。
 ### Cursor 19:24 — 本地收尾
 
 用户叫停 DeepSeek 后：4 支 video render + publish（全库 48）；概念 78 render / 89 publish。报告 `reviews/ASR_EXPAND5_REPORT_2026-08-25.md`。store SHA 未变。INBOX=`WAIT_USER` 队列空。
+
+### Cursor 21:57 — expand-5b 实际在跑（CC CLI 未接活）
+
+`claude -p` 只起 MCP、零工具调用 → 已停（exit 143），避免第二路 whisper。
+工单由本机串行 loop 执行：`bJYsb-kFdvI` 音频 160MB 已落盘，`asr-transcribe` pid **76331** 转写中。禁止再开 whisper / 禁止 rm lock。零 DeepSeek。
+
+### 进度 22:00（CC，扩 5b）
+
+INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
+- 5 IDs: `bJYsb-kFdvI` / `5fsVqcDBFic` / `3UamnjBEm4E` / `vWBT_3DaCu8` / `A5axQwdZchk`
+- 全 `streams`（0 shorts），0/5 有 transcript_version ✅
+- `bJYsb-kFdvI` 音频 160MB 已在盘上
+- 余 4 支音频缺失（待 Cursor loop yt-dlp）
+- 父 zsh 74695 存活（13:54）；asr-transcribe **76331** 转 `bJYsb-kFdvI` 中
+- CC 挂 waiter `be5q4ivff` 监听 76331；CC 不开第二路 whisper / 不 rm lock/tmp
+- 禁止 analyze（DeepSeek 402 + 本工单明令）
+
+### Cursor 00:33 — expand-5b DONE
+
+5/5 转写+import PASS。render 5/5 拒（无 analyze，预期）。store SHA 未变。
+报告 `reviews/ASR_EXPAND5B_REPORT_2026-08-25.md`。下一刀 `ASR_EXPAND5C_KICKOFF`。
