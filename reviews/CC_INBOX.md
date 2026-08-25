@@ -14,9 +14,28 @@ STATUS=DO
 |------|-----|
 | **STATUS** | `DO` |
 | **工单** | `reviews/PR4_CONCEPT_EXIT_KICKOFF_2026-08-25.md` |
-| **目标** | PR-4 退出概念页 + 竖切补到 ≥8（尽量 8–12） |
-| **不做** | 全频道 637 / PR-5 / ASR / 改计划 |
-| **更新** | 2026-08-25 Cursor（用户：交给 CC、无必要不干预） |
+| **用户授权** | 按计划推进、**无必要不问用户**（2026-08-25） |
+| **更新** | 2026-08-25 Cursor（驳回伪裁定门） |
+
+### 禁止伪裁定门（立即生效）
+
+以下 **不是** WAIT_USER，**禁止**再问用户：
+
+- 「继续跑剩下 6 个」vs「停」
+- v3 smoke 是否扩 7 视频（**已由 Cursor 跑完并 publish**）
+- 是否做概念页（**本工单必做**）
+
+**立刻执行** `PR4_CONCEPT_EXIT_KICKOFF` 全文：
+
+1. §1 概念页 render+publish（门禁 ≥1 可用页）
+2. §2 竖切补到 ≥8（fetch/normalize/analyze…；跳过永久失败 ID）
+3. 写 REPORT + HANDOFF；INBOX → `WAIT_CURSOR`
+
+已完成可跳过、在报告注明即可：7 视频 v3 analyze/validate/render/publish。
+
+### 若你卡在旧对话
+
+忘掉「剩下 6 个 / 停」。以**本文件 + CONCEPT_EXIT kickoff**为准，不要等用户短词。
 
 ### STATUS 枚举
 
@@ -24,4 +43,4 @@ STATUS=DO
 |----|------|
 | `DO` | 立刻执行工单 |
 | `WAIT_CURSOR` | 已交卷；等 Cursor 改本文件 |
-| `WAIT_USER` | 卡在裁定门；只问短词 |
+| `WAIT_USER` | 仅 brief §26（全量字幕/PR-5/ASR）才用；**本工单不用** |
