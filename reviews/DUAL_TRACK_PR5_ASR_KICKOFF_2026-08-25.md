@@ -1,8 +1,8 @@
-# Claude Code — 「都做」：PR-5 实现 + ASR 试点
+# Claude Code — 「都做」：PR-5 实现 + 人工转写导入（WPS）
 
 > **签发**：Cursor（2026-08-25）  
-> **触发**：用户「都做」  
-> **顺序**：先 **P1 PR-5**，再 **P2 ASR 试点**（P1 不过测则停，勿开 P2）  
+> **触发**：用户「都做」；**修订**：用户「音频撰写文字可以让我在 WPS 中转，不需要消耗 token」  
+> **顺序**：先 **P1 PR-5**，再 **P2 音频抽取 + WPS 导入通道**（P1 不过测则停）  
 > **不问用户**；交卷 → `WAIT_CURSOR`
 
 ---
@@ -12,7 +12,9 @@
 | 阶段 | 交付 | 红线 |
 |------|------|------|
 | **P1** | 按 `docs/plans/pr5-macro-bridge.md` 落地代码+测试 | `store.db` SHA 前后不变 |
-| **P2** | 3 个 streams ASR 试点 → 可进 normalize（及可选 analyze） | 不下全量 50；报告禁贴转写正文 |
+| **P2** | 仅 3 streams **下载音频** + **导入 WPS 转写稿** 的最小路径 | **禁止** faster-whisper / 任何机转写 / 烧模型 token |
+
+**转写由用户在 WPS 完成。** Agent 只准备音频文件 + 能把 WPS 导出的文本/字幕送进 normalize 的导入工具。
 
 ---
 
@@ -25,33 +27,25 @@ STORE_BEFORE=$(shasum -a 256 data/store.db | awk '{print $1}')
 echo "$STORE_BEFORE"
 ```
 
-上下文纪律：报告/对话 **只用 video_id + 计数 + SHA**；禁止贴字幕/ASR 全文（防 `data_inspection_failed`）。
+上下文纪律：报告/对话 **只用 video_id + 计数 + SHA**；禁止贴字幕/转写全文。
 
 ---
 
 ## P1 — PR-5 Macro Bridge 实现
 
-对照：`docs/plans/pr5-macro-bridge.md`（已审验 PASS）。
+对照：`docs/plans/pr5-macro-bridge.md`。
 
 ### 必做文件（≤8）
 
 | 文件 | 动作 |
 |------|------|
-| `lib/macro_bridge.py` | 新建：`open_macro_store_readonly`、`find_candidates`、`export_jsonl`、scan |
-| `lib/houchen_schema.py` + migrations | `macro_link_candidate` 表（houchen）；走现有 migration 模式 |
-| `scripts/houchen_pipeline.py` | `macro-bridge --scan` / `--export` / `--verify-sha` |
-| `scripts/test_macro_bridge.py` | 计划 §5 安全+功能（路径用 `scripts/`，非 `tests/`） |
-| `config/macro_bridge_keywords.yaml` | 关键词表（可从计划 §3.1 抽出） |
+| `lib/macro_bridge.py` | 新建：只读 store、scan、export |
+| `lib/houchen_schema.py` + migrations | `macro_link_candidate` |
+| `scripts/houchen_pipeline.py` | `macro-bridge --scan/--export/--verify-sha` |
+| `scripts/test_macro_bridge.py` | 安全+功能测试 |
+| `config/macro_bridge_keywords.yaml` | 关键词表 |
 
-### 硬约束
-
-- store.db：`file:…?mode=ro` + `PRAGMA query_only=ON`
-- **禁止**对 store.db 的 INSERT/UPDATE/DELETE
-- **禁止**自动 `import_to_evaluation` 写入（计划：需 reviewed=1；首版可只实现函数或省略 CLI）
-- 无新 pip 依赖；无 API key
-- 扫 **accepted** claims → 写入 houchen `macro_link_candidate` → JSONL 导出到 `data/houchen/` 下
-
-### 验收命令
+### 验收
 
 ```bash
 python3 -m pytest scripts/test_macro_bridge.py -q
@@ -61,15 +55,17 @@ python3 scripts/houchen_pipeline.py macro-bridge --export data/houchen/macro_lin
 test "$(shasum -a 256 data/store.db | awk '{print $1}')" = "$STORE_BEFORE"
 ```
 
-P1 不过 → **停止**，写报告，勿开 P2。
+P1 不过 → **停止**，勿开 P2。
 
 ---
 
-## P2 — ASR 试点（3 streams）
+## P2 — 音频给用户 + WPS 稿导入（取代机转写）
 
-对照：`reviews/ASR_PREFLIGHT_2026-08-25.md`（GO_PILOT）。
+### 若已写 `faster-whisper` / `asr_transcribe.py`
 
-### 范围（仅这 3 个，勿扩）
+**立刻停用并移除或改造成「仅文档说明」**；不得 `pip install faster-whisper`，不得下载模型。
+
+### 范围（仅 3 个，勿扩）
 
 ```text
 Z1HWDoSaC5Q
@@ -77,29 +73,33 @@ Z1HWDoSaC5Q
 ScbTzleF3Pc
 ```
 
-### 实现要点
+### P2a — 只抽音频（给用户用 WPS）
 
-1. 音频：`yt-dlp -x --audio-format m4a/mp3`，存 `data/houchen/asr/audio/<video_id>.*`（gitignore 大文件若过大可只留路径约定 + 小样例 fixture）
-2. 转写：`faster-whisper` **small**（允许本机 `pip install faster-whisper` **仅开发机**；勿把模型 commit 进 git）
-3. 产出：segments JSON → **适配**现有 normalize 入轨（优先生成可被现有 normalizer 消费的中间格式；若需新 `caption_kind`/`source=asr` 字段，最小 schema 变更并测）
-4. 幂等：同一 video 不重复烧盘；失败记 outcome，不崩全批
-5. 可选：对成功 ASR 的 3 视频 `normalize` → `analyze --provider deepseek --no-pending` → `validate`（单视频）；**analyze 失败不阻断试点**（记入报告）
+```bash
+yt-dlp -x --audio-format m4a -o "data/houchen/asr/audio/%(id)s.%(ext)s" -- "VIDEO_ID"
+```
 
-### 验收（报告字段）
+报告写明三个文件的**绝对路径**。  
+**禁止**：Whisper / 云 ASR / 任何自动转写。
 
-| 项 | 标准 |
-|----|------|
-| 3 视频均有 ASR artifact 或明确失败 class | 是 |
-| 至少 1 视频进入 `transcript_version status=ok` | 是 |
-| WER | 人工抽检可记「未做/抽样笔记」；不要求本机算 WER 工具 |
-| shorts | **不做** |
-| 对话/报告 | **零**转写正文 |
+### P2b — 导入通道（代码）
+
+```bash
+python3 scripts/houchen_pipeline.py import-transcript \
+  --video-id VIDEO_ID \
+  --from-file path/to/wps_export.txt
+```
+
+支持 `.txt` / `.vtt` / `.srt`（能做几个做几个）。纯文本无时间戳时可整段或均匀切段，报告注明。  
+fixture 用假短文本测幂等；**勿**把真实 WPS 稿贴进对话。
+
+用户尚未交稿：完成 P2a 路径 + P2b 代码与测试即可交卷；INBOX 可 `WAIT_USER` 并写「等 WPS 稿后说 **导入**」。
 
 ### 禁止
 
-- 50 streams / 29 shorts 全量 ASR
-- 把 ASR 文本 `cat` 进终端给模型看
-- 提交模型权重或 >50MB 音频进 git（`.gitignore`）
+- faster-whisper / Whisper / 云语音  
+- 全频道音频  
+- 转写正文进模型上下文  
 
 ---
 
@@ -107,19 +107,16 @@ ScbTzleF3Pc
 
 | 文件 | 内容 |
 |------|------|
-| `reviews/PR5_IMPL_REPORT_2026-08-25.md` | P1 测试、候选条数、store SHA |
-| `reviews/ASR_PILOT_REPORT_2026-08-25.md` | P2 每视频 outcome、路径、是否 normalize/analyze |
+| `reviews/PR5_IMPL_REPORT_2026-08-25.md` | P1 |
+| `reviews/ASR_PILOT_REPORT_2026-08-25.md` | 音频路径 + import CLI；写明无 whisper |
 | `reviews/DUAL_TRACK_REPORT_2026-08-25.md` | 总摘要 |
-| HANDOFF 追加 | |
-| INBOX | `WAIT_CURSOR` |
-
-本地可 commit 实现；**勿 push** 除非用户另说（或特性分支）。
+| INBOX | `WAIT_CURSOR` 或等稿时 `WAIT_USER` |
 
 ---
 
-## 红线总表
+## 红线
 
-- store.db SHA 全程不变  
-- 不弱化 validator/quote  
-- 不做全频道 analyze  
-- 上下文纪律（防 inspection）  
+- store.db SHA 不变  
+- 不弱化 validator  
+- **零机转写 token/模型**  
+- 上下文纪律  
