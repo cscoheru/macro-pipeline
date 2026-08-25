@@ -1245,6 +1245,111 @@ def build_video_page_from_db(conn, video_id: str,
     )
 
 
+def _concept_source_from_row(row) -> houchen_render.ConceptSource:
+    return houchen_render.ConceptSource(
+        transcript_version_id=row["transcript_version_id"],
+        start_ms=row["start_ms"],
+        end_ms=row["end_ms"],
+        exact_quote=row["exact_quote"],
+        role=row["source_role"],
+        source_kind="model",
+        timestamp_url=row["timestamp_url"] or "",
+    )
+
+
+def build_concept_page_from_db(conn, concept_id: str) -> houchen_render.ConceptPage:
+    """Build a ConceptPage from corpus DB for render/publish (brief §11).
+
+    Proposed concepts are allowed (no auto-promote). Canonical-definition
+    sources use `source_role='canonical_definition'`; speaker uses are
+    `usage` / `speaker_definition`. System analyses only include linked
+    claims with `layer='system_evaluation'` (renderer asserts this).
+    """
+    crow = conn.execute(
+        "SELECT concept_id, canonical_name, definition, status,"
+        " first_seen_at, last_seen_at FROM concept WHERE concept_id=?",
+        (concept_id,)).fetchone()
+    if crow is None:
+        raise ValueError(f"unknown concept_id: {concept_id}")
+
+    domain_rows = conn.execute(
+        "SELECT domain_slug FROM concept_domain WHERE concept_id=?"
+        " ORDER BY domain_slug",
+        (concept_id,)).fetchall()
+    domain_slugs = [r["domain_slug"] for r in domain_rows]
+
+    src_rows = conn.execute(
+        "SELECT transcript_version_id, start_ms, end_ms, exact_quote,"
+        " source_role, timestamp_url FROM concept_source"
+        " WHERE concept_id=? ORDER BY start_ms, transcript_version_id",
+        (concept_id,)).fetchall()
+    canonical_definition_sources = []
+    speaker_use_sources = []
+    for r in src_rows:
+        src = _concept_source_from_row(r)
+        if r["source_role"] == "canonical_definition":
+            canonical_definition_sources.append(src)
+        else:
+            speaker_use_sources.append(src)
+
+    eval_rows = conn.execute(
+        "SELECT c.claim_id, c.claim_text, c.claim_type, c.layer, c.speaker,"
+        " cs.exact_quote, cs.timestamp_url, cs.transcript_version_id"
+        " FROM claim_concept cc"
+        " JOIN claim c ON c.claim_id = cc.claim_id"
+        " JOIN claim_source cs ON cs.claim_id = c.claim_id"
+        " WHERE cc.concept_id=? AND c.status='accepted'"
+        "   AND c.layer='system_evaluation'"
+        " ORDER BY cs.start_ms, c.claim_id",
+        (concept_id,)).fetchall()
+    system_evaluations = [
+        houchen_render.ClaimSummary(
+            claim_id=r["claim_id"],
+            claim_text=r["claim_text"],
+            claim_type=r["claim_type"],
+            layer=r["layer"],
+            speaker=r["speaker"],
+            exact_quote=r["exact_quote"],
+            timestamp_url=r["timestamp_url"],
+            transcript_version_id=r["transcript_version_id"],
+        )
+        for r in eval_rows
+    ]
+
+    return houchen_render.ConceptPage(
+        concept_id=crow["concept_id"],
+        canonical_name=crow["canonical_name"] or "",
+        definition=crow["definition"] or "",
+        status=crow["status"],
+        domain_slugs=domain_slugs,
+        first_seen_at=crow["first_seen_at"] or "",
+        last_seen_at=crow["last_seen_at"] or "",
+        canonical_definition_sources=canonical_definition_sources,
+        speaker_use_sources=speaker_use_sources,
+        system_evaluations=system_evaluations,
+    )
+
+
+def list_concepts_for_research_pages(conn, *, limit: int = 6) -> list[str]:
+    """Pick proposed/canonical concepts with ≥1 concept_source, prefer those
+    linked to accepted claims. Used to close PR-4 exit (brief §16)."""
+    rows = conn.execute(
+        "SELECT c.concept_id,"
+        "  (SELECT COUNT(*) FROM claim_concept cc"
+        "   JOIN claim cl ON cl.claim_id=cc.claim_id AND cl.status='accepted'"
+        "   WHERE cc.concept_id=c.concept_id) AS acc_n,"
+        "  (SELECT COUNT(*) FROM concept_source cs"
+        "   WHERE cs.concept_id=c.concept_id) AS src_n"
+        " FROM concept c"
+        " WHERE c.status IN ('proposed','canonical')"
+        "   AND EXISTS (SELECT 1 FROM concept_source cs"
+        "               WHERE cs.concept_id=c.concept_id)"
+        " ORDER BY acc_n DESC, src_n DESC, c.canonical_name ASC"
+        " LIMIT ?",
+        (limit,)).fetchall()
+    return [r["concept_id"] for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # PR-4 Phase 1 — run_render (write-side; render → write file → record row)
 # ---------------------------------------------------------------------------
@@ -1309,9 +1414,9 @@ def run_render(conn, *, kind: str, page_key: str,
         # column does not exist; the runner attaches vault_path at
         # publish-time via the publish_record row.
         conn.execute(
-            "UPDATE rendered_page SET render_sha256=?"
+            "UPDATE rendered_page SET render_sha256=?, template_version=?"
             " WHERE rendered_page_id=?",
-            (sha, rendered_page_id))
+            (sha, template_version, rendered_page_id))
     conn.commit()
 
     summary["local_path"] = local_path

@@ -512,9 +512,12 @@ def _load_render_page_obj(conn, args):
     )
     kind = args.kind
     if args.from_db:
-        if kind != "video":
-            raise ValueError("--from-db is only supported for --kind video")
-        return houchen_runner.build_video_page_from_db(conn, args.page_key)
+        if kind == "video":
+            return houchen_runner.build_video_page_from_db(conn, args.page_key)
+        if kind == "concept":
+            return houchen_runner.build_concept_page_from_db(conn, args.page_key)
+        raise ValueError(
+            "--from-db is only supported for --kind video|concept")
 
     if not args.from_json:
         raise ValueError("render requires --from-json or --from-db")
@@ -782,7 +785,7 @@ def build_parser():
     pr.add_argument("--from-json",
                     help="Path to a JSON file with the page dataclass data")
     pr.add_argument("--from-db", action="store_true",
-                    help="Load video page from corpus DB (video kind only)")
+                    help="Load video/concept page from corpus DB")
     pr.add_argument("--include-claim-pages", action="store_true",
                     help="Opt in to claim pages (S-2 audit fix)")
 

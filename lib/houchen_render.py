@@ -26,7 +26,22 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 
-TEMPLATE_VERSION = "2026-08-24.1"
+TEMPLATE_VERSION = "2026-08-25.1"
+
+# Human-facing labels for Obsidian reading mode (brief §11 readability).
+_CLAIM_TYPE_ZH = {
+    "definition": "定义",
+    "descriptive": "描述",
+    "causal": "因果",
+    "predictive": "预测",
+    "normative": "规范",
+    "interpretive": "解释",
+}
+_LAYER_ZH = {
+    "speaker_statement": "主讲原话",
+    "speaker_reasoning": "主讲推理",
+    "system_evaluation": "系统评估",
+}
 
 # Default ON (per the §11 inventory); OFF is opt-in via a CLI flag.
 DEFAULT_PAGE_KINDS = ("video", "concept", "forecast",
@@ -141,12 +156,56 @@ def _section(title: str) -> str:
     return f"## {title}\n\n"
 
 
+def _parse_timestamp_seconds(timestamp_url: str) -> int | None:
+    """Extract `t=` seconds from a YouTube (or compatible) timestamp URL."""
+    if not timestamp_url:
+        return None
+    m = re.search(r"[?&#]t=(\d+)", timestamp_url)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"[?&#]t=(\d+)s\b", timestamp_url)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _format_clock(seconds: int | None) -> str:
+    if seconds is None:
+        return ""
+    h, rem = divmod(max(0, seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _timestamp_link(timestamp_url: str) -> str:
+    """Short readable jump link — avoid dumping the full URL as link text."""
+    if not timestamp_url:
+        return ""
+    clock = _format_clock(_parse_timestamp_seconds(timestamp_url))
+    label = f"▶ {clock}" if clock else "▶ 跳转原片"
+    return f"[{label}]({timestamp_url})"
+
+
 def _render_quote_block(exact_quote: str, timestamp_url: str,
                         speaker: str | None, layer: str) -> str:
-    spk = f"[{speaker}] " if speaker else ""
-    badge = f"`{layer}`"
-    return (f"> {spk}{exact_quote}\n>\n"
-            f"> [{timestamp_url}]({timestamp_url})  {badge}\n\n")
+    spk = f"{speaker}：" if speaker else ""
+    layer_zh = _LAYER_ZH.get(layer, layer)
+    jump = _timestamp_link(timestamp_url)
+    lines = [f"> {spk}「{exact_quote}」\n"]
+    if jump:
+        lines.append(f">\n> {jump} · {layer_zh}\n")
+    else:
+        lines.append(f">\n> {layer_zh}\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _claim_heading(claim_text: str) -> str:
+    """One-line heading from claim_text; strip newlines for Markdown safety."""
+    text = (claim_text or "").replace("\n", " ").strip() or "（无主张文本）"
+    return text
 
 
 def render_video(p: VideoPage) -> str:
@@ -166,22 +225,33 @@ def render_video(p: VideoPage) -> str:
     })
     out = [fm]
     out.append(f"# {p.title or p.video_id}\n\n")
-    out.append(f"- **链接**：{p.canonical_url}\n")
-    out.append(f"- **时间**：{p.published_at}\n")
-    out.append(f"- **状态**：{badge}\n\n")
-    out.append(_section("分析出处"))
-    out.append(f"- transcript_version_id：`{p.transcript_version_id}`\n")
-    out.append(f"- analysis_run_id：`{p.analysis_run_id}`\n")
-    out.append(f"- prompt_version：`{p.prompt_version}`\n\n")
-    out.append(_section("声明列表"))
-    if not p.claims:
-        out.append("（无 accepted 主张）\n\n")
+    if p.canonical_url:
+        out.append(f"[打开视频]({p.canonical_url})")
+        if p.published_at:
+            out.append(f" · {p.published_at}")
+        out.append(f" · {badge}\n\n")
     else:
-        for c in sorted(p.claims, key=lambda x: (x.transcript_version_id, x.claim_id)):
-            out.append(f"### {c.claim_id}（{c.claim_type}）\n\n")
-            out.append(f"{c.claim_text}\n\n")
+        out.append(f"- **状态**：{badge}\n\n")
+
+    out.append(_section("主张"))
+    if not p.claims:
+        out.append("（暂无通过校验的主张）\n\n")
+    else:
+        ordered = sorted(
+            p.claims,
+            key=lambda x: (
+                _parse_timestamp_seconds(x.timestamp_url) is None,
+                _parse_timestamp_seconds(x.timestamp_url) or 0,
+                x.claim_id,
+            ),
+        )
+        for i, c in enumerate(ordered, start=1):
+            type_zh = _CLAIM_TYPE_ZH.get(c.claim_type, c.claim_type)
+            out.append(f"### {i}. {_claim_heading(c.claim_text)}\n\n")
+            out.append(f"*{type_zh}*\n\n")
             out.append(_render_quote_block(
                 c.exact_quote, c.timestamp_url, c.speaker, c.layer))
+
     if p.concept_ids:
         out.append(_section("概念"))
         for cid in sorted(set(p.concept_ids)):
@@ -192,6 +262,18 @@ def render_video(p: VideoPage) -> str:
         for fid in sorted(set(p.forecast_ids)):
             out.append(f"- [[forecast/{fid}]]\n")
         out.append("\n")
+
+    # Provenance last — machine IDs must not dominate reading mode.
+    out.append(_section("技术元数据"))
+    out.append(f"- video_id：`{p.video_id}`\n")
+    out.append(f"- transcript_version_id：`{p.transcript_version_id}`\n")
+    out.append(f"- analysis_run_id：`{p.analysis_run_id}`\n")
+    out.append(f"- prompt_version：`{p.prompt_version}`\n")
+    out.append(
+        f"- claims：accepted {p.claim_count_accepted} / "
+        f"rejected {p.claim_count_rejected} / "
+        f"needs_review {p.claim_count_needs_review}\n"
+    )
     return "".join(out)
 
 

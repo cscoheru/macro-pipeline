@@ -92,9 +92,16 @@ class TestVideoPage(unittest.TestCase):
         self.assertIn("template_version:", self.markdown)
 
     def test_claim_listing(self):
-        # Two claims should each have their own ### subhead.
-        self.assertIn("### cl_vid_aaaaaaaaaaa_001", self.markdown)
-        self.assertIn("### cl_vid_aaaaaaaaaaa_002", self.markdown)
+        # Human-readable headings use claim_text, not opaque claim_id.
+        self.assertIn("### 1. 中央财政转移支付对地方公共服务均等化有正向作用",
+                      self.markdown)
+        self.assertIn("### 2. 基础设施投资是地方政府的重要工具",
+                      self.markdown)
+        self.assertIn("## 主张", self.markdown)
+        self.assertIn("[▶ 2:00]", self.markdown)
+        self.assertIn("技术元数据", self.markdown)
+        # Opaque IDs stay in metadata / body, not as H3 titles.
+        self.assertNotIn("### cl_vid_aaaaaaaaaaa_001", self.markdown)
 
     def test_status_badge(self):
         # claim_count_rejected == 0 and needs_review == 1 → badge = "需要复核"
