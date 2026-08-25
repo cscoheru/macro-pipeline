@@ -7,16 +7,17 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/CONCEPT_REFRESH_PR5_LAND_KICKOFF_2026-08-25.md` |
-| **目标** | 概念页刷新（≤12）+ 收 PR-5（测试/scan/git land/acceptance） |
-| **排除** | `scripts/asr_transcribe.py`；全库 analyze；whisper |
-| **更新** | 2026-08-25 Cursor |
+| **STATUS** | `WAIT_USER` |
+| **刚完成** | 概念刷新 + PR-5 land — **PASS** |
+| **验收** | `CONCEPT_REFRESH_ACCEPTANCE_2026-08-25.md` · `PR5_ACCEPTANCE_2026-08-25.md` |
+| **摘要** | 18 concept published；PR-5 `d91a8be` on main；store SHA 不变 |
+| **下一工单** | 无；等用户短词 |
+| **更新** | 2026-08-25 Cursor 审验 |
 
 ### STATUS 枚举
 

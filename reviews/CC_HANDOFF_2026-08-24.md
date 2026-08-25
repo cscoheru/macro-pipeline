@@ -703,3 +703,33 @@ data/store.db  before = after = 4a8e409b7279…  (0 漂移)
 ### INBOX
 
 `WAIT_CURSOR`
+
+
+---
+
+## Concept Refresh + PR-5 Land (CC, 2026-08-25)
+
+**响应**：`reviews/CONCEPT_REFRESH_PR5_LAND_KICKOFF_2026-08-25.md`
+
+### A — 概念页刷新
+
+- 12 proposed concepts rendered
+- 18 concept pages published to Obsidian (12 refreshed + 6 existing)
+- 0 failed
+
+### B — PR-5 Land
+
+```text
+814d8a8 feat(houchen): land PR-5 macro-bridge
+d91a8be feat(houchen): WPS import-transcript path
+→ pushed to origin/main
+```
+
+- 46 tests pass (28 macro_bridge + 18 import_transcript)
+- scan: 8 claims → 41 candidates (all contextualizes)
+- store.db SHA `4a8e409b…` ✅
+- `scripts/asr_transcribe.py` deleted (deprecated whisper)
+
+### INBOX
+
+`WAIT_CURSOR`
