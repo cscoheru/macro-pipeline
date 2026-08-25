@@ -41,6 +41,7 @@ import houchen_status  # noqa: E402
 import houchen_store  # noqa: E402
 import macro_bridge  # noqa: E402  # PR-5: macro bridge
 import houchen_import_transcript  # noqa: E402  # PR-5 P2b: WPS import
+import houchen_asr  # noqa: E402  # ASR local pilot
 
 EXIT_OK = 0
 EXIT_RUNTIME = 1
@@ -872,6 +873,19 @@ def cmd_import_transcript(args):
         conn.close()
 
 
+def cmd_asr_transcribe(args):
+    """Local faster-whisper transcription (streams only; refuses shorts)."""
+    try:
+        result = houchen_asr.transcribe(
+            args.video_id, model_name=args.model
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return EXIT_OK
+    except RuntimeError as e:
+        print(f"asr-transcribe failed: {e}", file=sys.stderr)
+        return EXIT_RUNTIME
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="houchen_pipeline",
@@ -1020,6 +1034,12 @@ def build_parser():
     pit.add_argument("--language", default="zh",
                      help="Language code (default: zh)")
 
+    # ASR local pilot
+    pasr = sub.add_parser("asr-transcribe", parents=[common],
+                          help="Local faster-whisper transcription")
+    pasr.add_argument("--video-id", required=True)
+    pasr.add_argument("--model", default="small")
+
     return p
 
 
@@ -1053,6 +1073,8 @@ def main(argv=None):
         return cmd_macro_bridge(args)
     if args.cmd == "import-transcript":
         return cmd_import_transcript(args)
+    if args.cmd == "asr-transcribe":
+        return cmd_asr_transcribe(args)
     print(f"unknown command: {args.cmd}", file=sys.stderr)
     return EXIT_USAGE
 
