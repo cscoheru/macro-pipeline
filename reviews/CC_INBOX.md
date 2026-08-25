@@ -9,18 +9,17 @@
 ## 状态
 
 ```text
-STATUS=WAIT_CURSOR
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_CURSOR` |
-| **工单** | `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md`（**未验收 PASS**） |
-| **现况** | 父 zsh **25206** 串行转写中：`7L9X75dL1Dg` VTT+transcript 已入库、accepted=0；whisper **29901** 正在转 `TFjqgua7jKk` |
+| **STATUS** | `DO` |
+| **工单** | `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | ASR 试点 3/3 PASS |
-| **还要做** | **Stop 待命**（hook poll）。不准第二路 asr-transcribe；不准 rm lock/tmp。loop 结束后 Cursor 派 `DO`：补 5 支 analyze（`config/houchen_analyze.env`）+ 报告 |
-| **更新** | 2026-08-25 17:30 Cursor：按用户 `INBOX=WAIT_CURSOR`；扩 5 未完成，不派概念 refresh |
+| **已完成（勿重做）** | ASR 试点 3/3；扩 5 **转写+import 5/5**（勿再 asr-transcribe） |
+| **还要做** | 5 支 analyze（`config/houchen_analyze.env`）→ validate → render → publish → `ASR_EXPAND5_REPORT` |
+| **更新** | 2026-08-25 18:58 Cursor：`AGENT_EXPAND5_DONE`；FAIL_COUNT=5 全是 analyze；补跑 |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

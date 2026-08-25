@@ -1,9 +1,9 @@
 {
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
-  "inbox_status": "WAIT_CURSOR",
-  "ticket": "reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md",
+  "inbox_status": "DO",
+  "ticket": "reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 6,
-  "note": "WAIT_CURSOR: parent 25206 + whisper 29901 TFjqgua7jKk; expand-5 not accepted"
+  "cursor_seq": 7,
+  "note": "DO: expand-5 ASR+import 5/5; backfill analyze then report; no asr-transcribe"
 }
