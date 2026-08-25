@@ -15,11 +15,11 @@ STATUS=WAIT_USER
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `WAIT_USER` |
-| **工单** | 扩 5 转写+import 5/5；analyze 全 **DeepSeek HTTP 402 Insufficient Balance** |
+| **工单** | 用户已选 **B**，但 `houchen_analyze.env` / `insight.env` **没有** `ANTHROPIC_API_KEY` 或 `MINIMAX_API_KEY` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
 | **已完成（勿重做）** | ASR 试点；扩 5 asr-transcribe（勿再开） |
-| **请用户选** | **A** 充值 DeepSeek 后派 `DO` 重跑 analyze；**B** 改 `houchen_analyze.env` 为 anthropic/minimax 再 `DO`；**C** 接受无 claims，只写 `ASR_EXPAND5_REPORT` 记 402 |
-| **更新** | 2026-08-25 19:01 Cursor：按量 API 钱是裁定门；CC 勿空转 DO |
+| **还要** | 往 `config/houchen_analyze.env` 写入可用的 anthropic 或 minimax key（chmod 600），或改选 A/C |
+| **更新** | 2026-08-25 19:04 Cursor：B 无法切换——本机只有 DeepSeek key（已 402） |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 
