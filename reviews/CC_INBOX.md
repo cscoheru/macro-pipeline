@@ -7,17 +7,17 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **刚完成** | 概念刷新 + PR-5 land — **PASS** |
-| **验收** | `CONCEPT_REFRESH_ACCEPTANCE_2026-08-25.md` · `PR5_ACCEPTANCE_2026-08-25.md` |
-| **摘要** | 18 concept published；PR-5 `d91a8be` on main；store SHA 不变 |
-| **下一工单** | 无；等用户短词 |
-| **更新** | 2026-08-25 Cursor 审验 |
+| **STATUS** | `DO` |
+| **工单** | `reviews/CORPUS_EXPAND_KICKOFF_2026-08-25.md` |
+| **计划** | `docs/plans/full-caption-corpus.md` |
+| **目标** | P1 字幕抓取 → 扩竖切 ≥25 视频 accepted → macro review PR-5.1 |
+| **排除** | whisper；WPS 下一批；全 129 analyze |
+| **更新** | 2026-08-25 Cursor |
 
 ### STATUS 枚举
 
