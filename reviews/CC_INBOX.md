@@ -7,25 +7,22 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **审验** | `reviews/SECTION26_BUNDLE_ACCEPTANCE_2026-08-25.md` — **PASS** |
-| **说明** | A/B/C 交卷已过；等用户短词开下一刀 |
+| **STATUS** | `DO` |
+| **工单** | `reviews/DUAL_TRACK_PR5_ASR_KICKOFF_2026-08-25.md` |
+| **授权** | 用户「都做」（PR-5 实现 + ASR 试点） |
+| **顺序** | P1 PR-5 →（测试绿）→ P2 ASR 3 streams |
 | **更新** | 2026-08-25 Cursor |
 
-### 用户裁定门
+### 禁止伪裁定门
 
-| 你说 | 方向 |
-|------|------|
-| **ASR试点** | 3 streams + faster-whisper（新 kickoff） |
-| **PR-5实现** | 按 `docs/plans/pr5-macro-bridge.md` 编码 |
-| **都做** | PR-5 实现 + ASR 试点（Cursor 排期后 DO） |
-| **停** | 无新工单 |
-| **commit** | 交卷/审验文档入库 |
+不要问先做哪个。按 kickoff P1→P2。P1 失败则停并 `WAIT_CURSOR`。
+
+报告禁贴字幕/ASR 正文。
 
 ### STATUS 枚举
 
