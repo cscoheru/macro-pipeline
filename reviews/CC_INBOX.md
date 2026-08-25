@@ -13,16 +13,18 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **工单** | `reviews/DUAL_TRACK_PR5_ASR_KICKOFF_2026-08-25.md` |
-| **授权** | 用户「都做」（PR-5 实现 + ASR 试点） |
-| **顺序** | P1 PR-5 →（测试绿）→ P2 ASR 3 streams |
+| **工单** | `reviews/DUAL_TRACK_PR5_ASR_KICKOFF_2026-08-25.md`（**已修订**） |
+| **授权** | 「都做」+「WPS 人工转写，不耗 token」 |
+| **P2 变更** | **禁止** faster-whisper；只抽 3 条音频 + `import-transcript` 通道 |
 | **更新** | 2026-08-25 Cursor |
+
+### 若你已在跑 whisper
+
+**立刻停**。删未提交的 whisper 依赖/模型下载逻辑；改按修订后 kickoff P2（音频 + 导入）。
 
 ### 禁止伪裁定门
 
-不要问先做哪个。按 kickoff P1→P2。P1 失败则停并 `WAIT_CURSOR`。
-
-报告禁贴字幕/ASR 正文。
+P1→P2（修订版）。不要问用户要不要用 WPS。
 
 ### STATUS 枚举
 
