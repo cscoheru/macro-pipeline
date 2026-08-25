@@ -486,3 +486,67 @@ Cursor 下一工单：v3 prompt（强 layer 约束 + verbatim 引文 few-shot）
 - 386 tests pass
 
 报告：`reviews/PR4_PROMPT_ALIGN_REPORT_2026-08-25.md`。
+
+---
+
+## PR-4 Prompt Align v3 试跑 (CC / 本地, 2026-08-25)
+
+**响应**：`reviews/PR4_PROMPT_ALIGN_V3_KICKOFF_2026-08-25.md`（commit `65dcc68`）
+
+### 试跑（7DsxtHsOCzA）
+
+```text
+analyze  hcrun_01a03670aa7e7001b0878f18e865a521  → success (deepseek)
+validate → partial: validated=4, rejected=4
+render --from-db → 本地 7DsxtHsOCzA.md 含 4 条主张 (SHA 9c8bbc4d…)
+publish  → 未在 v3 后重跑（vault SHA c68079e2… 旧）
+```
+
+### 拒因（v3 本 run）
+
+| Rule | rejected 占比 | 状态 |
+|------|---------------|------|
+| R10 speaker_statement | 0% | ✅ schema 修复生效 |
+| R2 verbatim quote | 100% (4/4) | ⚠️ 仍为主要拒因 |
+
+### Cursor 审验
+
+`reviews/PR4_PROMPT_ALIGN_V3_ACCEPTANCE_2026-08-25.md` — **PARTIAL**（门禁过、render 过、Obsidian 未同步）。
+
+### 待办
+
+1. `publish` 更新 Obsidian `7DsxtHsOCzA.md`
+2. 通过后 kickoff §3 扩 7 视频
+
+### 红线
+
+- `data/store.db` SHA = `3c2ceda61c24…`
+- 387 tests pass
+
+---
+
+## PR-4 Prompt Align v3 publish (Cursor, 2026-08-25)
+
+**触发**：用户「publish」
+
+```text
+publish --kind video --page-id rp_video_7DsxtHsOCzA
+  → success (Obsidian PUT+GET SHA ok)
+vault_sha256 = render_sha256 = 9c8bbc4d7ca0abc3d89b34c2a2a026ea43ac48ce781b913040fff2931533d3d9
+```
+
+**代码修复**：`publish_page` / `publish_with_path` 在 `vault_sha256 ≠ render_sha256` 时重新 PUT（此前 `status=published` 会错误 no-op）。
+
+Obsidian：`Research/世界苦茶/video/7DsxtHsOCzA.md` 现含 4 条 v3 accepted 主张。
+
+**待用户**：**commit** 已完成扩量；后续可选全频道 analyze（勿一次跑全量）。
+
+---
+
+## PR-4 Prompt Align v3 扩量 (Cursor, 2026-08-25)
+
+**触发**：用户「扩量并commit」
+
+6 视频 v3 analyze→validate→render；7 视频 publish。合计 **30** real accepted 行（7 视频）；Obsidian 7 页 SHA 对齐。
+
+报告：`reviews/PR4_PROMPT_ALIGN_V3_EXPAND_REPORT_2026-08-25.md`。

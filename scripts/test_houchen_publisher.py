@@ -153,12 +153,40 @@ class TestPublisherHappyPath(unittest.TestCase):
             conn=self.c, page_id=self.page_id,
             vault_path=vpath, vault_writer=w, actor="test")
         n_calls = len(w.calls)
-        # Second call is a no-op.
+        # Second call is a no-op when render SHA unchanged.
         result = houchen_runner.publish_with_path(
             conn=self.c, page_id=self.page_id,
             vault_path=vpath, vault_writer=w, actor="test")
         self.assertTrue(result.published)
         self.assertEqual(len(w.calls), n_calls)
+
+    def test_republish_when_render_sha_changes(self):
+        import hashlib
+        w = FakeVaultWriter()
+        vpath = "Research/世界苦茶/video/vid_aaaaaaaaaaa.md"
+        houchen_runner.publish_with_path(
+            conn=self.c, page_id=self.page_id,
+            vault_path=vpath, vault_writer=w, actor="test")
+        n_calls = len(w.calls)
+        row = self.c.execute(
+            "SELECT page_kind, page_key, template_version FROM rendered_page"
+            " WHERE rendered_page_id=?",
+            (self.page_id,)).fetchone()
+        local_path = houchen_publish_paths.render_page_path(
+            row[2], row[0], row[1])
+        new_content = "# re-rendered\n\nupdated body\n"
+        new_sha = hashlib.sha256(new_content.encode("utf-8")).hexdigest()
+        with open(local_path, "w", encoding="utf-8") as fh:
+            fh.write(new_content)
+        self.c.execute(
+            "UPDATE rendered_page SET render_sha256=? WHERE rendered_page_id=?",
+            (new_sha, self.page_id))
+        self.c.commit()
+        result = houchen_runner.publish_with_path(
+            conn=self.c, page_id=self.page_id,
+            vault_path=vpath, vault_writer=w, actor="test")
+        self.assertTrue(result.published)
+        self.assertGreater(len(w.calls), n_calls)
 
 
 class TestPublisherFailureModes(unittest.TestCase):

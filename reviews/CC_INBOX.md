@@ -7,15 +7,15 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_CURSOR
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/PR4_PROMPT_ALIGN_V3_KICKOFF_2026-08-25.md` |
-| **门禁** | validate `validated` ≥ 1 → render `--from-db` → publish |
-| **更新** | 2026-08-25 Cursor（用户「v3」） |
+| **STATUS** | `WAIT_CURSOR` |
+| **v3 扩量** | `reviews/PR4_PROMPT_ALIGN_V3_EXPAND_REPORT_2026-08-25.md` |
+| **7 视频** | 30 accepted；Obsidian 7 页已同步 |
+| **更新** | 2026-08-25 Cursor（扩量+commit 进行中） |
 
 ### STATUS 枚举
 

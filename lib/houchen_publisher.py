@@ -259,10 +259,10 @@ def publish_page(*, conn, page_id: str, vault_writer: VaultWriter,
     existing = _fetch_existing_record(conn, page_id, vault_path)
     if existing is not None:
         pub_id, status, vault_sha = existing
-        if status == "published":
+        if status == "published" and vault_sha == render_sha:
             return PublishResult(page_id=page_id, vault_path=vault_path,
                                  published=True)
-        # else: continue retry path below.
+        # else: continue retry / re-publish path below.
 
     try:
         vault_writer.put_pipeline(vault_path, content)

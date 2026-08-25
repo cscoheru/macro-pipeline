@@ -1490,7 +1490,7 @@ def _publish_with_explicit_path(conn, *, page_id, render_sha,
 
     existing = houchen_publisher._fetch_existing_record(
         conn, page_id, vault_path)
-    if existing is not None and existing[1] == "published":
+    if existing is not None and existing[1] == "published" and existing[2] == render_sha:
         return houchen_publisher.PublishResult(
             page_id=page_id, vault_path=vault_path, published=True)
 
