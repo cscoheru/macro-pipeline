@@ -1,6 +1,7 @@
 # CC_INBOX — 唯一行动指针
 
-> Claude Code：**每回合先读本文件**。状态为 DO 则立刻执行，禁止先问用户「做什么」。
+> Claude Code：**每回合先读本文件**。状态为 DO 则立刻执行，禁止先问用户「做什么」。  
+> Cursor 正在代值守（`reviews/SUPERVISOR_PROTOCOL.md`）：交卷用 `WAIT_CURSOR`，**不要** `WAIT_USER`，除非协议表里的裁定门。
 
 ---
 
@@ -13,21 +14,19 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **顺序** | ① 概念页（若未完）→ **② 外源 EP-230** → ③ ASR 试点 |
-| **② 工单** | `reviews/GUEST_BUMINGBAI_EP230_KICKOFF_2026-08-25.md` |
-| **③ 工单** | `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md` |
-| **外源 ID** | `KLJJuMybVsc` |
-| **禁止** | shorts；catalog 全频道；贴转写正文 |
-| **更新** | 2026-08-25 Cursor |
+| **剩余** | ASR 试点未完成的 streams |
+| **工单** | `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md` |
+| **已完成（勿重做）** | 概念 P4 PASS；`KLJJuMybVsc` PASS；`epg0aoUbPN4` 已 accepted |
+| **还要做** | `E9uJV2bwzjM`、`jfXAn1dgkyw` 转写→import→analyze→render→publish；写 ASR 报告 |
+| **禁止** | shorts；问用户；全库 analyze |
+| **更新** | 2026-08-25 Cursor 代值守 |
 
-正在跑 ASR 某一支：跑完该支再做 ②，然后继续 ③。② 未开始则 **先 ② 再 ③**（外源快）。
-
-全部完成 → `WAIT_CURSOR`。
+完成后 `WAIT_CURSOR`（Cursor 会自动验收并可能派 ASR 扩 5）。
 
 ### STATUS 枚举
 
 | 值 | 含义 |
 |----|------|
 | `DO` | 立刻执行工单 |
-| `WAIT_CURSOR` | 已交卷；等 Cursor 改本文件 |
-| `WAIT_USER` | 卡在裁定门；只问短词 |
+| `WAIT_CURSOR` | 已交卷；Cursor 自动验收 |
+| `WAIT_USER` | 仅协议表内裁定门 |
