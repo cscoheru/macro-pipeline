@@ -16,10 +16,11 @@ STATUS=DO
 |------|-----|
 | **STATUS** | `DO` |
 | **工单** | `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md` |
+| **接手** | `reviews/ASR_EXPAND5_CC_TAKEOVER_2026-08-25.md`（**不要等 Cursor**；25239 在转就等 pid） |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md`（Stop / compact / SessionStart 后巡检待命） |
 | **已完成（勿重做）** | ASR 试点 3/3 PASS；报告 `reviews/ASR_LOCAL_PILOT_REPORT_2026-08-25.md` |
-| **还要做** | 单进程转写扩 5；有 pid/`.lock` **禁止**再开 asr-transcribe |
-| **更新** | 2026-08-25 Cursor：下达 CC Autopilot 待命；扩 5 仍有效 |
+| **还要做** | 等 25239；父 25206 活着则不重复；父死则串行接链。有 pid/`.lock` **禁止**再开 asr-transcribe |
+| **更新** | 2026-08-25 17:14 Cursor：CC 不要空等；按 TAKEOVER 文件执行 |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

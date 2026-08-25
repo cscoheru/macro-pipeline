@@ -4,6 +4,6 @@
   "inbox_status": "DO",
   "ticket": "reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 4,
-  "note": "CC Autopilot standby after compact; Stop hook never idles except WAIT_USER"
+  "cursor_seq": 5,
+  "note": "expand-5: whisper 25239 live; CC DO via ASR_EXPAND5_CC_TAKEOVER; do not second-asr"
 }

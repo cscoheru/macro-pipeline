@@ -1,6 +1,7 @@
-# Supervisor state — 2026-08-25 16:55
+# Supervisor state — 2026-08-25 17:14
 
-已向 CC 下达 Autopilot 待命。INBOX=`DO` 扩 5 + 常驻 `CC_AUTOPILOT_CC.md`。
+INBOX=`DO`。CC 空等已解除：`reviews/ASR_EXPAND5_CC_TAKEOVER_2026-08-25.md`。
 
-- compact / Stop 后禁止 idle；watch_until 延至 2026-08-27T16:00Z
-- 扩 5 仍未开转（asr_n=0）则等 CC pull
+whisper **25239** 转 `7L9X75dL1Dg`（tmp 在涨）。父 zsh **25206** 仍在则 CC 不重复。禁止第二路 asr、禁止 rm lock/tmp。
+
+STORE_BEFORE=`0c0cfbc5cb524f03ef6a208cef4b60b55731afcc360f848d7115e57e3d090a27`
