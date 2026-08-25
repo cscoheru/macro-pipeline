@@ -9,17 +9,17 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/ASR_EXPAND5_ANALYZE_KICKOFF_2026-08-25.md` |
+| **STATUS** | `WAIT_USER` |
+| **工单** | 扩 5 analyze **已跑完 5/5 DeepSeek**（用户：token 太快，停） |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | ASR 试点；扩 5 asr-transcribe+import 5/5（勿再开 asr） |
-| **还要做** | 用户选 **A**：`provider deepseek` 补跑 5 支 analyze → validate → render → publish → 报告。仍 402 则交卷勿死循环 |
-| **更新** | 2026-08-25 19:12 Cursor：用户改选 A |
+| **已完成（勿重做）** | ASR+import 5/5；analyze 5/5 **禁止再跑 DeepSeek** |
+| **还要** | 本地 render/publish 不耗 DeepSeek；或到此为止。**不准**再 `--provider deepseek` |
+| **更新** | 2026-08-25 19:17 Cursor：用户叫停花费；INBOX 离开 DO |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 
