@@ -169,3 +169,7 @@ CC 不会自选 A/B/C。**等 Cursor 派 DO 决定**。
 ### Cursor 19:12 — 用户选 A
 
 重试 DeepSeek analyze。INBOX=`DO` 同一工单。仍 402 则交卷，勿死循环。
+
+### Cursor 19:24 — 本地收尾
+
+用户叫停 DeepSeek 后：4 支 video render + publish（全库 48）；概念 78 render / 89 publish。报告 `reviews/ASR_EXPAND5_REPORT_2026-08-25.md`。store SHA 未变。INBOX=`WAIT_USER` 队列空。
