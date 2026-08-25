@@ -16,4 +16,4 @@ python3 scripts/cc_autopilot_inspect.py
 
 硬禁令：已有 `asr-transcribe` pid 或 `.lock` → 不准再开；不准 `rm` ASR lock/tmp。
 
-当前工单以 `reviews/CC_INBOX.md` 为准（现为 ASR 扩 5）。
+当前工单以 `reviews/CC_INBOX.md` 为准。

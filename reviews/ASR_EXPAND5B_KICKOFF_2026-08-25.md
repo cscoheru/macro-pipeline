@@ -35,7 +35,9 @@ yt-dlp -f ba -o "data/houchen/asr/audio/%(id)s.%(ext)s" -- "https://www.youtube.
 
 ## 每支（串行）
 
-有 `asr-transcribe` pid 或 `.lock` → **禁止**再开。禁止 `rm` lock/tmp。
+有 `asr-transcribe` pid → **禁止**再开。禁止 `rm` lock/tmp。
+
+扩 5 已完成 ID 的 `.lock` 可能还在磁盘（VTT 已落盘、`asr_n=0`）。那是 leftover 文件，不是活锁；**不要 rm**，也不要因此拒开新 ID。新 ID 各自 flock。
 
 ```bash
 PY=/usr/local/bin/python3
