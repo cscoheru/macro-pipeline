@@ -16,6 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PILOT_IDS = ("epg0aoUbPN4", "E9uJV2bwzjM", "jfXAn1dgkyw")
+EXPAND5_IDS = (
+    "7L9X75dL1Dg",
+    "TFjqgua7jKk",
+    "Xp4GBvKBPww",
+    "XUKmvcu9sss",
+    "Ft5Xg-Wv52U",
+)
+WATCH_IDS = PILOT_IDS + EXPAND5_IDS
 STALL_SEC = 25 * 60
 FROZEN_DEFAULT = (
     "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c"
@@ -69,7 +77,7 @@ def _file_info(path: Path) -> dict | None:
     return {"bytes": st.st_size, "mtime": int(st.st_mtime)}
 
 
-def vtt_view(vtt_dir: Path, video_ids: tuple[str, ...] = PILOT_IDS) -> dict:
+def vtt_view(vtt_dir: Path, video_ids: tuple[str, ...] = WATCH_IDS) -> dict:
     out = {}
     now = time.time()
     for vid in video_ids:
@@ -120,7 +128,7 @@ def classify(inbox: str, pids: list[int], vtts: dict,
     actions: list[str] = []
     if len(pids) > 1:
         actions.append("kill_duplicate_whisper")
-    if inbox == "WAIT_CURSOR":
+    if inbox == "WAIT_CURSOR" and not pids:
         actions.append("accept_inbox")
     if inbox == "DO" and not pids and pending_import:
         actions.append("finish_import_analyze")

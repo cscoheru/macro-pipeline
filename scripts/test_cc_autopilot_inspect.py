@@ -38,6 +38,12 @@ def test_classify_wait_cursor_is_action():
     assert "accept_inbox" in actions
 
 
+def test_classify_wait_cursor_with_whisper_is_not_accept():
+    sev, actions, _ = inspect.classify("WAIT_CURSOR", [29901], {}, True)
+    assert "accept_inbox" not in actions
+    assert sev == "OK"
+
+
 def test_classify_ok_single_pid():
     sev, actions, _ = inspect.classify("DO", [4487], {}, True)
     assert sev == "OK"
