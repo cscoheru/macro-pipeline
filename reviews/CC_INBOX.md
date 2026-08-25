@@ -15,11 +15,11 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **工单** | `reviews/ASR_EXPAND5D_KICKOFF_2026-08-26.md` |
+| **工单** | `reviews/ASR_EXPAND5E_KICKOFF_2026-08-26.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b；5c 转写+import 5/5。**禁止 DeepSeek** |
-| **还要做** | 再扩 5d streams：asr-transcribe → import。有 pid/lock 禁止第二路 |
-| **更新** | 2026-08-26 02:53 Cursor：5c PASS，按计划续 5d |
+| **已完成（勿重做）** | 试点 3；扩 5；5b；5c；5d 转写+import 4/5（`kZUwR4ORFH4` 下载 FAIL）。**禁止 DeepSeek** |
+| **还要做** | 再扩 5e streams：asr-transcribe → import。首条补 `kZUwR4ORFH4`。有 pid/lock 禁止第二路 |
+| **更新** | 2026-08-26 04:47 Cursor：5d PASS 4/5，按计划续 5e |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 
