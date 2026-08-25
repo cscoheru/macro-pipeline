@@ -1,0 +1,8 @@
+{
+  "protocol_version": 1,
+  "watch_until": "2026-08-25T10:00:00+00:00",
+  "inbox_status": "DO",
+  "ticket": "reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md",
+  "cursor_seq": 2,
+  "note": "Cursor unsupervised window; CC Stop hook polls git"
+}

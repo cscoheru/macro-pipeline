@@ -16,7 +16,7 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 ## 每轮（loop tick）
 
 1. 读 `reviews/CC_INBOX.md` + `reviews/SUPERVISOR_STATE.md` + `git log -5`
-2. `STATUS=WAIT_CURSOR` → 按工单验收；PASS 则 commit 验收 + 派计划中下一刀 `DO`
+2. `STATUS=WAIT_CURSOR` → 验收 → 派下一刀 `DO` → **立刻 `git push origin main`**（CC Stop hook 靠 pull 才能接到）
 3. `STATUS=DO` 且进度在动 → 只更新 STATE，不改工单
 4. `STATUS=DO` 且 **≥25min 无 git/文件进展** → 在 STATE 记 stalled，**下一刀不重复派同一工单**；仍不叫用户，除非卡在上表
 5. 计划队列清空且无 stalled → INBOX `WAIT_USER` 一句「队列空，两小时后看 STATE」

@@ -1,7 +1,7 @@
 # CC_INBOX — 唯一行动指针
 
 > Claude Code：**每回合先读本文件**。状态为 DO 则立刻执行，禁止先问用户「做什么」。  
-> Cursor 正在代值守（`reviews/SUPERVISOR_PROTOCOL.md`）：交卷用 `WAIT_CURSOR`，**不要** `WAIT_USER`，除非协议表里的裁定门。
+> 总线：`reviews/AGENT_BUS.md`。交卷 `WAIT_CURSOR` 后 Stop，hook 会 pull。
 
 ---
 

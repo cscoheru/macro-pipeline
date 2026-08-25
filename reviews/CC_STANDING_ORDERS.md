@@ -28,6 +28,7 @@ cat reviews/CC_INBOX.md
 ls -lt reviews/ | head -25
 
 # C. 读本文件 + inbox 指向的工单全文
+# D. git pull --ff-only（Cursor 可能刚 push 了新 DO）
 ```
 
 然后：
@@ -36,10 +37,10 @@ ls -lt reviews/ | head -25
 |------|------|
 | `CC_INBOX.md` 状态 = **DO** | 执行「当前工单」路径；不问用户 |
 | 状态 = **WAIT_USER** | 只问裁定门短词；不闲聊 |
-| 状态 = **WAIT_CURSOR** | 写/更新 HANDOFF；告诉用户「已交 Cursor」；**不要编造下一阶段** |
-| inbox 与最新 `*_KICKOFF_*` / `*_IMPL_*` 不一致 | **以更新的 kickoff/impl 为准**，并在 HANDOFF 注明 |
+| 状态 = **WAIT_CURSOR** | **不要问用户。** 写 HANDOFF、INBOX=`WAIT_CURSOR`、`git push`、然后 **Stop**。仓库 Stop hook 会 pull 轮询直到 Cursor 改回 `DO`。 |
 
 **禁止**：开场就问「你希望我做什么？」——先扫盘。
+**禁止**：把 Cursor 的话请用户转发。通信走 `reviews/AGENT_BUS.md`。
 
 ---
 
@@ -49,8 +50,8 @@ ls -lt reviews/ | head -25
 §1 扫盘
   → 有 DO 工单：执行到底（或到硬禁令/裁定门）
   → 写 reviews/CC_HANDOFF_YYYY-MM-DD.md（或追加）
-  → 若工单要求：更新 CC_INBOX.md 状态为 WAIT_CURSOR
-  → 停止编码；下一动作留给 Cursor 改 inbox
+  → `git add` 报告 + INBOX=`WAIT_CURSOR` + `git push origin main`
+  → **Stop**（不要问用户；hook 会轮询 Cursor 的下一刀 DO）
 ```
 
 ### 2.1 HANDOFF 最低字段
@@ -61,7 +62,7 @@ ls -lt reviews/ | head -25
 
 - 不依赖用户转发。
 - 更新 `CC_HANDOFF_*.md` + 把 `CC_INBOX.md` 设为 `WAIT_CURSOR`。
-- Cursor 会主动读；用户只需在 Cursor 会话里偶尔出现。
+- Cursor 8min loop 会验收并 push 新 `DO`；你的 Stop hook `git pull` 接上。
 
 ---
 
