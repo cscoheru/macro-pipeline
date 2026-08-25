@@ -550,3 +550,54 @@ Obsidian：`Research/世界苦茶/video/7DsxtHsOCzA.md` 现含 4 条 v3 accepted
 6 视频 v3 analyze→validate→render；7 视频 publish。合计 **30** real accepted 行（7 视频）；Obsidian 7 页 SHA 对齐。
 
 报告：`reviews/PR4_PROMPT_ALIGN_V3_EXPAND_REPORT_2026-08-25.md`。
+
+
+---
+
+## PR-4 Concept-Exit (CC, 2026-08-25)
+
+**响应**：`reviews/PR4_CONCEPT_EXIT_KICKOFF_2026-08-25.md`
+
+### §1 概念页（PR-4 退出必做）
+
+- 6 张概念页 render (`--from-db`) → publish → Obsidian
+- 模板 `template_version=2026-08-25.1`（v3 prompt bump 后）
+- 每页含：frontmatter / 标题 / 定义 / 领域 slug / Speaker uses / System analyses
+- **未 promote**（保持 `proposed`；human 注入前不进 canonical）
+
+### §2 竖切扩到 12 视频
+
+5 新视频（§2b）：l9qR-bXaFwM / Yukb3xuc9l8 / gRtY4ZEQI5A / 7zRWMu0kU2o / gk-_x2DWHCk
+
+| Step | Result |
+|------|--------|
+| fetch-captions × 5 | 5 frozen |
+| normalize × 5 | 5 normalized |
+| analyze × 5 (deepseek-chat, v3 prompt) | 5 success |
+| validate | 25 accepted (总累计 55 accepted claims) |
+| render × 5 (`--from-db`) | 5 rendered |
+| publish all video | 12 published |
+
+### brief §16 退出条件
+
+- ≥1 可用概念页：✅ 6 张
+- Re-publish no-op：✅
+- publish 失败不误记 published：✅（VaultWriter PUT→GET→SHA 协议保留）
+
+### 跳过
+
+- `f_jd_j3eEuE` (content_filter)
+- `mg_BuWqSL9A` (HTTP 400)
+
+### 红线
+
+- `data/store.db` 前 = 后 = `4a8e409b7279…` (0 漂移)
+- 388 tests pass
+
+### 报告
+
+详见 `reviews/PR4_CONCEPT_EXIT_REPORT_2026-08-25.md`。
+
+### 等 Cursor
+
+审验后，下一工单是 brief §26（全量字幕 / PR-5 macro bridge / ASR / 真人 speaker 解析），**本回合不主动开**。
