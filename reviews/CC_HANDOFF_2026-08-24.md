@@ -641,3 +641,65 @@ data/store.db  before = after = 4a8e409b7279…  (0 漂移)
 ### INBOX
 
 `STATUS=WAIT_CURSOR` — 等 Cursor 审验 A/B/C 三项产出
+
+
+---
+
+## §26 Dual Track: PR-5 + WPS Import (CC, 2026-08-25)
+
+**响应**：`reviews/DUAL_TRACK_PR5_ASR_KICKOFF_2026-08-25.md`（用户「都做」→ Cursor 改 WPS 路径）
+
+### P1 — PR-5 Macro Bridge
+
+- `lib/macro_bridge.py` + `config/macro_bridge_keywords.yaml` + CLI `macro-bridge --scan/--export/--verify-sha`
+- 28 tests / 434 total pass
+- 6 claims → 32 candidates (all contextualizes, v1)
+- store.db SHA `4a8e409b…` ✅
+
+### P2 — 音频 + import-transcript
+
+- 3 webm 音频下载 (358MB)
+- `lib/houchen_import_transcript.py` + CLI `import-transcript --video-id --from-file`
+- 支持 .txt / .vtt / .srt；幂等
+- 18 tests
+- **零 whisper / 零机转写**
+- 已知限制：`analyze --pending` 不拾取 `wps_import` normalizer，需 `--video-id` 显式
+
+### 红线
+
+- store.db SHA 不变 ✅
+- 零机转写 token ✅
+
+### INBOX
+
+`WAIT_CURSOR` — WPS 3 直播全链完成
+
+
+---
+
+## WPS Stream Analyze (CC, 2026-08-25)
+
+**响应**：`reviews/WPS_STREAM_ANALYZE_KICKOFF_2026-08-25.md`
+
+### 结果
+
+| video_id | accepted | rejected | publish |
+|----------|----------|----------|---------|
+| `Z1HWDoSaC5Q` | 7 | 1 | ✅ |
+| `-9qyfgyKkaU` | 6 | 1 | ✅ |
+| `ScbTzleF3Pc` | 7 | 1 | ✅ |
+| **合计** | **20** | 3 | 15 pages |
+
+### 红线
+
+- store.db SHA `4a8e409b…` ✅
+- 零转写正文 ✅
+- 仅 3 视频 ✅
+
+### 报告
+
+`reviews/WPS_STREAM_ANALYZE_REPORT_2026-08-25.md`
+
+### INBOX
+
+`WAIT_CURSOR`
