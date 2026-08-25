@@ -7,16 +7,16 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **刚完成** | WPS 三直播 analyze→publish — **PASS**（`reviews/WPS_STREAM_ANALYZE_ACCEPTANCE_2026-08-25.md`） |
-| **结果摘要** | 20 accepted / 3 rejected；3 vault pages HTTP 200；store SHA 不变 |
-| **下一工单** | 无；等用户短词定下一步 |
-| **更新** | 2026-08-25 Cursor 审验 |
+| **STATUS** | `DO` |
+| **工单** | `reviews/CONCEPT_REFRESH_PR5_LAND_KICKOFF_2026-08-25.md` |
+| **目标** | 概念页刷新（≤12）+ 收 PR-5（测试/scan/git land/acceptance） |
+| **排除** | `scripts/asr_transcribe.py`；全库 analyze；whisper |
+| **更新** | 2026-08-25 Cursor |
 
 ### STATUS 枚举
 
