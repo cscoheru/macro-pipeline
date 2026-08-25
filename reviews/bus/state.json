@@ -2,7 +2,8 @@
   "protocol_version": 1,
   "watch_until": "2026-08-25T10:00:00+00:00",
   "inbox_status": "DO",
-  "ticket": "reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md",
-  "cursor_seq": 2,
+  "ticket": "reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md",
+  "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
+  "cursor_seq": 3,
   "note": "Cursor unsupervised window; CC Stop hook polls git"
 }

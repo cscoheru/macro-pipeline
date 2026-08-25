@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/cc-asr-guard.sh",
+        "timeout": 8
+      }
+    ]
+  }
+}

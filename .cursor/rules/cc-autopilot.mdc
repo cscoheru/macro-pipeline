@@ -1,0 +1,14 @@
+---
+description: CC Autopilot 巡检 — Cursor 值守 Claude Code 时每轮必做
+alwaysApply: true
+---
+
+# CC Autopilot
+
+Tick 或看到 `AGENT_LOOP_TICK_cc_autopilot` 时：
+
+1. `python3 scripts/cc_autopilot_inspect.py`（只读）。
+2. 按 `reviews/CC_AUTOPILOT.md` 执行 `actions`。
+3. **禁止**再开 `asr-transcribe`：已有 pid 或 `.lock` 时不准启动。
+4. **禁止** `rm` ASR `.lock` / `.vtt.tmp`（会让第二路 whisper 抢文件）。
+5. `severity=OK` → 只改 STATE。`finish_import_analyze` 时可以 import/analyze，但**禁止** `asr-transcribe`。

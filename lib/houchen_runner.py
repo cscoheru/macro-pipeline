@@ -1207,13 +1207,20 @@ def build_video_page_from_db(conn, video_id: str,
 
     claim_ids = [c.claim_id for c in claims]
     concept_ids: list[str] = []
+    concept_names: dict[str, str] = {}
     if claim_ids:
         placeholders = ",".join("?" * len(claim_ids))
         concept_rows = conn.execute(
-            f"SELECT DISTINCT concept_id FROM claim_concept"
-            f" WHERE claim_id IN ({placeholders})",
+            f"SELECT DISTINCT cc.concept_id, c.canonical_name"
+            f" FROM claim_concept cc"
+            f" JOIN concept c ON c.concept_id = cc.concept_id"
+            f" WHERE cc.claim_id IN ({placeholders})",
             claim_ids).fetchall()
         concept_ids = [r["concept_id"] for r in concept_rows]
+        concept_names = {
+            r["concept_id"]: (r["canonical_name"] or r["concept_id"])
+            for r in concept_rows
+        }
 
     forecast_ids: list[str] = []
     if claim_ids:
@@ -1241,6 +1248,7 @@ def build_video_page_from_db(conn, video_id: str,
         claim_count_needs_review=by_status.get("needs_review", 0),
         claims=claims,
         concept_ids=concept_ids,
+        concept_names=concept_names,
         forecast_ids=forecast_ids,
     )
 
@@ -1291,6 +1299,33 @@ def build_concept_page_from_db(conn, concept_id: str) -> houchen_render.ConceptP
             canonical_definition_sources.append(src)
         else:
             speaker_use_sources.append(src)
+
+    if not speaker_use_sources:
+        usage_rows = conn.execute(
+            "SELECT cs.transcript_version_id, cs.start_ms, cs.end_ms,"
+            " cs.exact_quote, cs.timestamp_url"
+            " FROM claim_concept cc"
+            " JOIN claim c ON c.claim_id = cc.claim_id"
+            " JOIN claim_source cs ON cs.claim_id = c.claim_id"
+            " WHERE cc.concept_id=? AND c.status='accepted'"
+            "   AND c.layer != 'system_evaluation'"
+            " ORDER BY cs.start_ms, c.claim_id",
+            (concept_id,)).fetchall()
+        seen_quotes: set[str] = set()
+        for r in usage_rows:
+            quote = (r["exact_quote"] or "").strip()
+            if not quote or quote in seen_quotes:
+                continue
+            seen_quotes.add(quote)
+            speaker_use_sources.append(houchen_render.ConceptSource(
+                transcript_version_id=r["transcript_version_id"],
+                start_ms=r["start_ms"],
+                end_ms=r["end_ms"],
+                exact_quote=quote,
+                role="usage",
+                source_kind="model",
+                timestamp_url=r["timestamp_url"] or "",
+            ))
 
     eval_rows = conn.execute(
         "SELECT c.claim_id, c.claim_text, c.claim_type, c.layer, c.speaker,"

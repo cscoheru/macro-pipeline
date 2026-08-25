@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 
-TEMPLATE_VERSION = "2026-08-25.1"
+TEMPLATE_VERSION = "2026-08-25.3"
 
 # Human-facing labels for Obsidian reading mode (brief §11 readability).
 _CLAIM_TYPE_ZH = {
@@ -66,6 +66,7 @@ class VideoPage:
     claim_count_needs_review: int
     claims: list["ClaimSummary"] = field(default_factory=list)
     concept_ids: list[str] = field(default_factory=list)
+    concept_names: dict[str, str] = field(default_factory=dict)
     forecast_ids: list[str] = field(default_factory=list)
 
 
@@ -142,12 +143,24 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _frontmatter(mapping: dict[str, str]) -> str:
+def _frontmatter(mapping: dict[str, str],
+                 aliases: list[str] | None = None) -> str:
     lines = ["---"]
     for k, v in mapping.items():
-        # YAML-safe single-line quoting.
-        s = (v or "").replace('"', '\\"')
+        if v is None or v == "":
+            continue
+        s = str(v).replace('"', '\\"')
         lines.append(f'{k}: "{s}"')
+    if aliases:
+        seen: list[str] = []
+        for a in aliases:
+            if a and a not in seen:
+                seen.append(a)
+        if seen:
+            lines.append("aliases:")
+            for a in seen:
+                s = a.replace('"', '\\"')
+                lines.append(f'  - "{s}"')
     lines.append("---\n")
     return "\n".join(lines)
 
@@ -179,6 +192,24 @@ def _format_clock(seconds: int | None) -> str:
     return f"{m}:{s:02d}"
 
 
+def _date_only(iso: str) -> str:
+    if not iso:
+        return ""
+    return iso[:10] if len(iso) >= 10 else iso
+
+
+def _wiki(kind: str, key: str, label: str | None = None) -> str:
+    if label:
+        return f"[[{kind}/{key}|{label}]]"
+    return f"[[{kind}/{key}]]"
+
+
+def _same_text(a: str, b: str) -> bool:
+    def n(s):
+        return re.sub(r"\s+", "", (s or "").strip("「」\"'"))
+    return bool(n(a)) and n(a) == n(b)
+
+
 def _timestamp_link(timestamp_url: str) -> str:
     """Short readable jump link — avoid dumping the full URL as link text."""
     if not timestamp_url:
@@ -208,30 +239,66 @@ def _claim_heading(claim_text: str) -> str:
     return text
 
 
+_CONCEPT_STATUS_ZH = {
+    "proposed": "候选",
+    "canonical": "正式",
+    "deprecated": "已弃用",
+}
+_SOURCE_KIND_ZH = {
+    "model": "抽取",
+    "human": "人工",
+}
+
+
+def _claim_meta_line(c: ClaimSummary) -> str:
+    type_zh = _CLAIM_TYPE_ZH.get(c.claim_type, c.claim_type)
+    layer_zh = _LAYER_ZH.get(c.layer, c.layer)
+    jump = _timestamp_link(c.timestamp_url)
+    bits = [type_zh]
+    if jump:
+        bits.append(jump)
+    bits.append(layer_zh)
+    return f"*{' · '.join(bits)}*\n\n"
+
+
+def _render_claim_body(c: ClaimSummary) -> str:
+    if c.exact_quote and not _same_text(c.claim_text, c.exact_quote):
+        type_zh = _CLAIM_TYPE_ZH.get(c.claim_type, c.claim_type)
+        return f"*{type_zh}*\n\n" + _render_quote_block(
+            c.exact_quote, c.timestamp_url, c.speaker, c.layer)
+    return _claim_meta_line(c)
+
+
+def _render_source_line(s: ConceptSource) -> str:
+    jump = _timestamp_link(s.timestamp_url)
+    kind_zh = _SOURCE_KIND_ZH.get(s.source_kind, s.source_kind)
+    quote = f"「{s.exact_quote}」" if s.exact_quote else ""
+    if jump:
+        return f"- {quote} {jump} · {kind_zh}\n"
+    return f"- {quote} · {kind_zh}\n"
+
+
 def render_video(p: VideoPage) -> str:
     badge = "已校验" if p.claim_count_rejected == 0 and \
         p.claim_count_needs_review == 0 else "需要复核"
+    title = p.title or p.video_id
     fm = _frontmatter({
         "page_kind": "video",
         "video_id": p.video_id,
-        "transcript_version_id": p.transcript_version_id,
-        "analysis_run_id": p.analysis_run_id,
-        "prompt_version": p.prompt_version,
-        "template_version": TEMPLATE_VERSION,
-        "claim_count_accepted": str(p.claim_count_accepted),
-        "claim_count_rejected": str(p.claim_count_rejected),
-        "claim_count_needs_review": str(p.claim_count_needs_review),
+        "title": title,
         "status": badge,
-    })
+        "template_version": TEMPLATE_VERSION,
+    }, aliases=[title] if p.title else None)
     out = [fm]
-    out.append(f"# {p.title or p.video_id}\n\n")
+    out.append(f"# {title}\n\n")
     if p.canonical_url:
         out.append(f"[打开视频]({p.canonical_url})")
-        if p.published_at:
-            out.append(f" · {p.published_at}")
+        pub = _date_only(p.published_at)
+        if pub:
+            out.append(f" · {pub}")
         out.append(f" · {badge}\n\n")
     else:
-        out.append(f"- **状态**：{badge}\n\n")
+        out.append(f"{badge}\n\n")
 
     out.append(_section("主张"))
     if not p.claims:
@@ -246,78 +313,68 @@ def render_video(p: VideoPage) -> str:
             ),
         )
         for i, c in enumerate(ordered, start=1):
-            type_zh = _CLAIM_TYPE_ZH.get(c.claim_type, c.claim_type)
             out.append(f"### {i}. {_claim_heading(c.claim_text)}\n\n")
-            out.append(f"*{type_zh}*\n\n")
-            out.append(_render_quote_block(
-                c.exact_quote, c.timestamp_url, c.speaker, c.layer))
+            out.append(_render_claim_body(c))
 
     if p.concept_ids:
         out.append(_section("概念"))
         for cid in sorted(set(p.concept_ids)):
-            out.append(f"- [[concept/{cid}]]\n")
+            name = (p.concept_names or {}).get(cid)
+            out.append(f"- {_wiki('concept', cid, name)}\n")
         out.append("\n")
-    if p.forecast_ids:
+    n_fc = len(set(p.forecast_ids or []))
+    if n_fc:
         out.append(_section("预测"))
-        for fid in sorted(set(p.forecast_ids)):
-            out.append(f"- [[forecast/{fid}]]\n")
-        out.append("\n")
+        out.append(f"本视频有 {n_fc} 条预测候选。\n\n")
 
-    # Provenance last — machine IDs must not dominate reading mode.
-    out.append(_section("技术元数据"))
-    out.append(f"- video_id：`{p.video_id}`\n")
-    out.append(f"- transcript_version_id：`{p.transcript_version_id}`\n")
-    out.append(f"- analysis_run_id：`{p.analysis_run_id}`\n")
-    out.append(f"- prompt_version：`{p.prompt_version}`\n")
-    out.append(
-        f"- claims：accepted {p.claim_count_accepted} / "
-        f"rejected {p.claim_count_rejected} / "
-        f"needs_review {p.claim_count_needs_review}\n"
-    )
     return "".join(out)
 
 
 def render_concept(p: ConceptPage) -> str:
+    status_zh = _CONCEPT_STATUS_ZH.get(p.status, p.status)
     fm = _frontmatter({
         "page_kind": "concept",
         "concept_id": p.concept_id,
-        "status": p.status,
+        "title": p.canonical_name,
+        "status": status_zh,
         "template_version": TEMPLATE_VERSION,
-    })
+    }, aliases=[p.canonical_name] if p.canonical_name else None)
     out = [fm]
     out.append(f"# {p.canonical_name}\n\n")
-    out.append(f"{p.definition}\n\n")
+    if p.definition:
+        out.append(f"{p.definition}\n\n")
+    meta = []
     if p.domain_slugs:
-        out.append(f"- **领域**：{', '.join(sorted(set(p.domain_slugs)))}\n")
-    out.append(f"- **首见**：{p.first_seen_at}\n")
-    out.append(f"- **最近**：{p.last_seen_at}\n\n")
-    out.append(_section("Canonical definition（人类/机器正式定义）"))
-    if not p.canonical_definition_sources:
-        out.append("（暂无）\n\n")
-    else:
+        meta.append(f"- **领域**：{', '.join(sorted(set(p.domain_slugs)))}")
+    first = _date_only(p.first_seen_at)
+    last = _date_only(p.last_seen_at)
+    if first:
+        meta.append(f"- **首见**：{first}")
+    if last and last != first:
+        meta.append(f"- **最近**：{last}")
+    if meta:
+        out.append("\n".join(meta) + "\n\n")
+
+    if p.canonical_definition_sources:
+        out.append(_section("正式定义"))
         for s in sorted(p.canonical_definition_sources,
                         key=lambda x: (x.transcript_version_id, x.start_ms)):
-            tag = f"`{s.source_kind}`"
-            out.append(f"- {s.exact_quote}  [{s.timestamp_url}]({s.timestamp_url})  {tag}\n")
+            out.append(_render_source_line(s))
         out.append("\n")
-    out.append(_section("Speaker uses（来自人物讲话的用法）"))
-    if not p.speaker_use_sources:
-        out.append("（暂无）\n\n")
-    else:
+    if p.speaker_use_sources:
+        out.append(_section("讲话中的用法"))
         for s in sorted(p.speaker_use_sources,
                         key=lambda x: (x.transcript_version_id, x.start_ms)):
-            tag = f"`{s.source_kind}`"
-            out.append(f"- {s.exact_quote}  [{s.timestamp_url}]({s.timestamp_url})  {tag}\n")
+            out.append(_render_source_line(s))
         out.append("\n")
-    out.append(_section("System analyses（来自 model 的分析，仅 system_evaluation）"))
-    # Critical: model analyses must NEVER include speaker_statement rows.
-    for c in sorted(p.system_evaluations,
-                    key=lambda x: (x.transcript_version_id, x.claim_id)):
-        assert c.layer == "system_evaluation", \
-            f"concept page {p.concept_id} leaking layer={c.layer!r}"
-        out.append(f"- {c.claim_text}（{c.claim_id}，{c.claim_type}）\n")
-        out.append(_render_quote_block(
-            c.exact_quote, c.timestamp_url, c.speaker, c.layer))
+    if p.system_evaluations:
+        out.append(_section("系统评估"))
+        for c in sorted(p.system_evaluations,
+                        key=lambda x: (x.transcript_version_id, x.claim_id)):
+            assert c.layer == "system_evaluation", \
+                f"concept page {p.concept_id} leaking layer={c.layer!r}"
+            out.append(f"### {_claim_heading(c.claim_text)}\n\n")
+            out.append(_render_claim_body(c))
     return "".join(out)
 
 

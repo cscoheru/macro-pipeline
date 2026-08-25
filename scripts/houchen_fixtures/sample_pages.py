@@ -68,6 +68,10 @@ def make_video_page() -> VideoPage:
             ),
         ],
         concept_ids=["con_001", "con_002"],
+        concept_names={
+            "con_001": "财政转移支付",
+            "con_002": "基础设施投资",
+        },
         forecast_ids=["fc_001"],
     )
 

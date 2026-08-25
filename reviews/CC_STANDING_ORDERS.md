@@ -66,9 +66,10 @@ ls -lt reviews/ | head -25
 
 ---
 
-## 3. 硬禁令（无书面授权永不做）
+3. 硬禁令（无书面授权永不做）
 
-push main｜force 共享分支｜部署｜真模型｜未授权 live｜改 Codex 基线/DOCX｜写宏观 store.db｜弱化测试
+push main｜force 共享分支｜部署｜未授权 live｜写宏观 store.db｜弱化测试  
+第二路 `asr-transcribe`｜`rm` ASR `.lock`/`.tmp`（见 `reviews/CC_AUTOPILOT.md`）
 
 默认：**fake** provider；push **仅**特性分支且需工单/用户授权。
 
@@ -124,4 +125,4 @@ Cursor 会：
 | 时间 | 事件 |
 |------|------|
 | 2026-08-24 | 初版 |
-| 2026-08-24 18:03 | 强制主动扫盘；新增 CC_INBOX 指针 |
+| 2026-08-25 | Autopilot：禁止第二路 ASR；`reviews/CC_AUTOPILOT.md` |

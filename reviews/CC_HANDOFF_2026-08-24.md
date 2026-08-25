@@ -773,3 +773,35 @@ d91a8be feat(houchen): WPS import-transcript path
 ### INBOX
 
 `WAIT_CURSOR`
+
+
+---
+
+## ASR Local Pilot (CC, 2026-08-25)
+
+**响应**：`reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md`
+
+### 结果
+
+| video_id | duration | segs | accepted | rejected |
+|----------|----------|------|----------|----------|
+| epg0aoUbPN4 | 8861s | 4247 | 7 | 0 |
+| E9uJV2bwzjM | 8696s | 3702 | 16 | 0 |
+| jfXAn1dgkyw | 9406s | 4712 | 7 | 9 |
+
+**3/3 PASS** — accepted 7+16+7；099 已 publish。报告 `reviews/ASR_LOCAL_PILOT_REPORT_2026-08-25.md`。
+
+### 抽检建议
+
+三支均 **GO** 扩量（jfX reject 偏高但仍 accepted≥1）。
+
+### 红线
+
+- 零 shorts ASR/analyze
+- 零音频进 git
+- asr + autopilot tests 绿
+- store.db SHA 已漂移 `0c0cfbc5…`（非本工单写入；未回滚）
+
+### INBOX
+
+试点交卷后 Cursor 已派 `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md`（`DO`）。

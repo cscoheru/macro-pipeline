@@ -15,8 +15,8 @@ Covers:
      `include_claim_pages=True` does not enable them at the
      `render_page` dispatcher level — only the runner-level CLI flag
      matters.
-  6. Three-section concept page: canonical definition / speaker uses /
-     system analyses each have their own ## section.
+  6. Three-section concept page: 正式定义 / 讲话中的用法 /
+     系统评估 each have their own ## section when non-empty.
   7. `render_sha256` is stable and decoupled from dataclass identity.
 """
 from __future__ import annotations
@@ -99,8 +99,9 @@ class TestVideoPage(unittest.TestCase):
                       self.markdown)
         self.assertIn("## 主张", self.markdown)
         self.assertIn("[▶ 2:00]", self.markdown)
-        self.assertIn("技术元数据", self.markdown)
-        # Opaque IDs stay in metadata / body, not as H3 titles.
+        self.assertNotIn("技术元数据", self.markdown)
+        self.assertNotIn("transcript_version_id", self.markdown)
+        # Opaque IDs stay out of H3 titles and reading body.
         self.assertNotIn("### cl_vid_aaaaaaaaaaa_001", self.markdown)
 
     def test_status_badge(self):
@@ -108,8 +109,10 @@ class TestVideoPage(unittest.TestCase):
         self.assertIn("需要复核", self.markdown)
 
     def test_links_to_concept_and_forecast(self):
-        self.assertIn("[[concept/con_001]]", self.markdown)
-        self.assertIn("[[forecast/fc_001]]", self.markdown)
+        self.assertIn("[[concept/con_001|财政转移支付]]", self.markdown)
+        self.assertIn("[[concept/con_002|基础设施投资]]", self.markdown)
+        self.assertNotIn("[[forecast/fc_001]]", self.markdown)
+        self.assertIn("本视频有 1 条预测候选", self.markdown)
 
 
 class TestConceptPage(unittest.TestCase):
@@ -117,14 +120,31 @@ class TestConceptPage(unittest.TestCase):
         self.markdown = houchen_render.render_concept(make_concept_page())
 
     def test_three_section_dividers(self):
-        self.assertIn("## Canonical definition", self.markdown)
-        self.assertIn("## Speaker uses", self.markdown)
-        self.assertIn("## System analyses", self.markdown)
+        self.assertIn("## 正式定义", self.markdown)
+        self.assertIn("## 讲话中的用法", self.markdown)
+        self.assertIn("## 系统评估", self.markdown)
+        self.assertNotIn("（暂无）", self.markdown)
+        body = self.markdown.split("---", 2)[-1]
+        self.assertNotIn("con_001", body)
 
     def test_system_evaluations_only(self):
-        # The fixture has one system_evaluation row; the renderer must
-        # assert that no speaker_statement row leaks in.
-        self.assertIn("## System analyses", self.markdown)
+        self.assertIn("## 系统评估", self.markdown)
+        self.assertNotIn("cl_vid_aaaaaaaaaaa_001", self.markdown)
+
+    def test_empty_sections_omitted(self):
+        import dataclasses
+        page = make_concept_page()
+        empty = dataclasses.replace(
+            page,
+            canonical_definition_sources=[],
+            speaker_use_sources=[],
+            system_evaluations=[],
+        )
+        md = houchen_render.render_concept(empty)
+        self.assertNotIn("## 正式定义", md)
+        self.assertNotIn("## 讲话中的用法", md)
+        self.assertNotIn("## 系统评估", md)
+        self.assertNotIn("（暂无）", md)
 
     def test_layer_assertion_on_speaker_statement_leak(self):
         """If a caller mixes a speaker_statement into system_evaluations

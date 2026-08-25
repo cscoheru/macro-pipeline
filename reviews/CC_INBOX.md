@@ -14,13 +14,12 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **剩余** | ASR 试点未完成的 streams |
-| **工单** | `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md` |
-| **已完成（勿重做）** | 概念 P4 PASS；`KLJJuMybVsc` PASS；`epg0aoUbPN4` 已 accepted |
-| **还要做** | 单进程转写 `E9uJV2bwzjM`→`jfXAn1dgkyw`；有 `.lock` 则 **禁止** 再开 asr-transcribe |
-| **更新** | 2026-08-25 杀掉 CC 并行 whisper；flock 防重入 |
+| **工单** | `reviews/ASR_EXPAND5_KICKOFF_2026-08-25.md` |
+| **已完成（勿重做）** | ASR 试点 3/3 PASS（101/100/099 = 7/16/7 accepted）；报告 `reviews/ASR_LOCAL_PILOT_REPORT_2026-08-25.md` |
+| **还要做** | 单进程转写上表 5 个 stream；有 pid/`.lock` **禁止**再开 asr-transcribe |
+| **更新** | 2026-08-25 Cursor Autopilot 验收试点并派扩 5 |
 
-完成后 `WAIT_CURSOR`（Cursor 会自动验收并可能派 ASR 扩 5）。
+完成后 `WAIT_CURSOR`。
 
 ### STATUS 枚举
 

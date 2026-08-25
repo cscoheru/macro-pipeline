@@ -23,11 +23,13 @@ DO  --CC 做完-->  WAIT_CURSOR  --Cursor 验收+派下一刀-->  DO
                  WAIT_USER     --仅协议表裁定门-->
 ```
 
-## Cursor（已有 8min loop）
+## Cursor（Autopilot 巡检）
 
-1. `git pull --ff-only`
+详见 `reviews/CC_AUTOPILOT.md`。每 120s 脚本巡检；仅 `severity!=OK` 叫醒 Cursor。
+
+1. `python3 scripts/cc_autopilot_inspect.py`
 2. INBOX=`WAIT_CURSOR` → 验收 → 写下一工单 → INBOX=`DO` → **立刻 `git push`**
-3. 这样 CC 的 Stop hook 在 ≤90s–8min 内 `git pull` 就能接到 `DO`
+3. 有 pid/lock → **禁止**再开 `asr-transcribe`；禁止 `rm` ASR lock/tmp
 
 ## Claude Code（本仓库 hook）
 
