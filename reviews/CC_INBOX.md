@@ -13,21 +13,16 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **顺序** | ① 概念页（若未完成）→ ② ASR 试点 |
-| **①** | `reviews/CONCEPT_INCREMENTAL_REFRESH_KICKOFF_2026-08-25.md` |
-| **②** | `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md` |
-| **禁止** | **全部 shorts**（切片）；勿等用户插话 |
+| **顺序** | ① 概念页（若未完）→ **② 外源 EP-230** → ③ ASR 试点 |
+| **② 工单** | `reviews/GUEST_BUMINGBAI_EP230_KICKOFF_2026-08-25.md` |
+| **③ 工单** | `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md` |
+| **外源 ID** | `KLJJuMybVsc` |
+| **禁止** | shorts；catalog 全频道；贴转写正文 |
 | **更新** | 2026-08-25 Cursor |
 
-概念页已交卷则跳过 ①，直接 ②。两件都完成后 `WAIT_CURSOR`。
+正在跑 ASR 某一支：跑完该支再做 ②，然后继续 ③。② 未开始则 **先 ② 再 ③**（外源快）。
 
-### 试点 streams
-
-```text
-epg0aoUbPN4
-E9uJV2bwzjM
-jfXAn1dgkyw
-```
+全部完成 → `WAIT_CURSOR`。
 
 ### STATUS 枚举
 
