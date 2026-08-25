@@ -9,17 +9,17 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **工单** | 扩 5 本地收尾完成；报告 `reviews/ASR_EXPAND5_REPORT_2026-08-25.md` |
+| **STATUS** | `DO` |
+| **工单** | `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成** | ASR 试点；扩 5 转写+import+analyze；video render/publish；78 概念本地 refresh。**禁止再 DeepSeek** |
-| **队列** | **空** |
-| **更新** | 2026-08-25 19:24 Cursor：本地收尾交卷 |
+| **已完成（勿重做）** | 试点 3；扩 5 转写+analyze；本地收尾。**禁止 DeepSeek** |
+| **还要做** | 再扩 5 streams：asr-transcribe → import → render → publish。有 pid/lock 禁止第二路 |
+| **更新** | 2026-08-25 21:46 Cursor：用户要求按计划继续；卡住点（花钱）跳过 analyze |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

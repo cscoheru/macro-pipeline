@@ -28,4 +28,5 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 1. [x] ASR 试点 3 streams 交卷并验收  
 2. [x] ASR 扩 5 streams（转写+import 5/5；analyze 5/5；本地 render/publish）  
 3. [x] 概念页增量 refresh（78 render / 89 publish，无 LLM）  
-4. [x] 队列空 → 停 loop
+4. [ ] ASR 再扩 5 streams（**零 DeepSeek**；工单 `ASR_EXPAND5B_KICKOFF`）  
+5. [ ] 队列空 → 停 loop
