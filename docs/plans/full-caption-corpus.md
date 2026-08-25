@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-25  
 **Status:** Plan — Phase 1 执行见 `reviews/CORPUS_EXPAND_KICKOFF_2026-08-25.md`  
-**范围:** 编目内 **129** 公开视频（非全频道 637）  
-**对照:** brief §5 / §13；§26 A 已做 `videos` 集合 50/50
+**范围:** 编目 **videos + streams**（**忽略全部 shorts**：用户裁定为长视频切片）  
+**对照:** brief §5 / §13；§26 A 已做 `videos` 50/50
 
 ---
 
@@ -15,21 +15,21 @@
 | `raw_caption` | 53（50 YouTube + 3 WPS 人工） |
 | `transcript_version ok` | 53（`vtt_json3_v1` 50 + `wps_import` 3） |
 | accepted claims | 75（15 视频） |
-| 无字幕（coverage） | ~79 `missing`（主要在 streams/shorts） |
+| 无字幕 | streams 缺口（shorts **不计入目标**） |
 
-| 集合 | 有字幕 / 总数 |
-|------|----------------|
-| videos | 50 / 50 |
-| streams | 0 / 50（+3 WPS 未走 raw_caption 计数） |
-| shorts | 0 / 29 |
+| 集合 | 策略 |
+|------|------|
+| videos | 已 50/50 CC |
+| streams | ASR / WPS；YouTube 多为 missing |
+| shorts | **忽略**（切片） |
 
-**结论:** 分析线 `videos` 已封顶；扩语料 = **streams + shorts** 的 YouTube 抓取 + 高价值直播 **WPS 人工**。
+**结论:** 扩语料 = **streams** 本地 ASR（默认）+ 关键 LIVE 的 WPS。
 
 ---
 
 ## 2. 目标
 
-1. **字幕层:** 对编目 129 内每一支给出 terminal outcome（`frozen` / `missing` / `unavailable` / …），`pending=0`。  
+1. **字幕层:** videos + streams 给出 terminal outcome；**shorts 不计入**。  
 2. **可分析层:** `normalize ok` 尽量多；不承诺 100%（直播常无 CC）。  
 3. **分析层:** 竖切分批推进（本计划 **不写** 全库 analyze）；见竖切 kickoff。  
 4. **红线:** `store.db` 只读；不 whisper 机转写（用户已定 WPS 路径）。
@@ -46,7 +46,7 @@ normalize --pending
 coverage --markdown
 ```
 
-- **优先集合:** `streams`（50）→ `shorts`（29）→ 其余无 `raw_caption` 的编目项。  
+- **优先集合:** 仅 `streams`。**禁止** shorts。  
 - **预期:** streams 大量 `missing`（直播无自动字幕）— **正常**，记 ID 即可。  
 - **批次:** `--limit 20` 循环直至 `pending=0` 或仅 terminal。  
 - **禁止:** 本轨完成后立即全库 analyze。
@@ -68,8 +68,7 @@ coverage --markdown
 
 - **零 LLM token**；成本为 CPU 时间（见 `docs/plans/transcript-alternatives.md`）。  
 - `ASR_PREFLIGHT` 已 `GO_PILOT`；3 支 WPS 作质量对照。  
-- 执行：`asr-transcribe` 试点（`--limit 3`，small 模型，**跳过 shorts**）→ 入库 → `analyze --video-id`。  
-- 用户短词「ASR试点」→ Cursor 开 impl kickoff。
+- 执行：`reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md`（small ×3 streams）。
 
 ### 轨 D — WPS 人工（保留，非默认）
 

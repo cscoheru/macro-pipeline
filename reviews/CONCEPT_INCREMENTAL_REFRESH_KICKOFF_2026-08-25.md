@@ -82,12 +82,11 @@ python3 scripts/houchen_pipeline.py publish \
 
 - `reviews/CONCEPT_INCREMENTAL_REFRESH_REPORT_2026-08-25.md`
 - HANDOFF 追加
-- INBOX → `WAIT_CURSOR`
-- 无代码改动可不 commit；有改动则 push
+- **不要**停在 `WAIT_CURSOR`：立刻执行 `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md`（见 `CC_INBOX`）
 
 ---
 
 ## 不做
 
 - `promote_to_canonical`
-- 新 analyze / ASR / WPS
+- shorts

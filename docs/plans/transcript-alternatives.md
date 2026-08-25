@@ -12,9 +12,9 @@
 |------|--------|------|
 | videos | 0 | 已 100% |
 | streams | ~47（50−3 WPS） | 直播回放通常无 CC |
-| shorts | 29 | 碎片，claim 密度低 |
+| shorts | **忽略** | 用户裁定：全部是长视频切片，不抓/不 ASR/不分析 |
 
-**P1 已跑完：** YouTube `fetch-captions` 对 streams/shorts 多为 terminal `missing`——**不是没试，是平台没字幕后轨**。
+**P1 已跑完：** YouTube `fetch-captions` 对 streams 多为 terminal `missing`——**不是没试，是平台没字幕后轨**。
 
 ---
 
@@ -33,7 +33,7 @@
 | LLM token | **0**（转写不走 DeepSeek） |
 | 成本 | CPU 时间；small 模型约 **2–4× 实时**（ASR_PREFLIGHT） |
 | 质量 | 中文 medium/large 更好；可与 3 支 WPS 对照 WER |
-| 控制 | `--limit N` 视频；跳过 shorts；`--max-duration-sec`；转写后删 webm 可选 |
+| 控制 | `--limit N` 仅 streams；**忽略全部 shorts**；`--max-duration-sec` |
 | 入库 | 音频 `yt-dlp` → segments JSON → 接 `import-transcript` 或 `normalizer_name=asr_whisper_v1` |
 
 **试点建议：** 3 支新 stream（非已 WPS 的 104/103/102），WER 抽检 <15% 再 `--limit 5` 扩批。
@@ -63,7 +63,7 @@
 
 | 项 | 原因 |
 |----|------|
-| shorts 全量 ASR | claim 密度低，ROI 差（preflight 已标 ⚠️） |
+| shorts 任何处理 | 用户 2026-08-25：切片，**永久忽略** |
 | 无上限全 50 streams 一夜跑完 | 磁盘 ~1.5–3.75GB 音频 + 数十小时 CPU |
 | analyze 全库 | brief 红线；用 `--limit` 分批 |
 
@@ -88,11 +88,10 @@
 ## 5. 建议执行顺序
 
 ```text
-1. 概念页 refresh（本工单 DO）     ← 无新转写
-2. 竖切剩余 ~14 有字幕视频        ← 仅 analyze token
-3. 本地 ASR 试点 3 streams        ← 0 LLM token，需 CC kickoff
-4. 试点 PASS 后每批 --limit 5     ← 仍 0 LLM token
-5. WPS 仅你点名的关键 LIVE        ← 人力
+1. 概念页 refresh（P4）
+2. 本地 ASR 试点 3 streams        ← 工单 ASR_LOCAL_PILOT_KICKOFF
+3. 试点 PASS 后每批 --limit 5 streams
+4. WPS 仅关键 LIVE 补洞
 ```
 
-**你若短词「ASR试点」** → Cursor 开 `ASR_LOCAL_PILOT_KICKOFF` 派 CC（默认 small + limit 3，不碰 shorts）。
+**用户已批 ASR 试点**（2026-08-25）。shorts 永久排除。
