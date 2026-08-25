@@ -343,3 +343,146 @@ data/houchen   0 → 16 files  (catalog → analyze → render 全链；预期�
 - 审验 `reviews/PR4_LIVE_SMOKE_REPORT_2026-08-24.md`
 - 真模型授权（`--provider anthropic/deepseek`）另开 kickoff
 - `config/houchen_publish.env` 创建 + 真 Obsidian PUT 另开 kickoff
+
+
+---
+
+## PR-4 Real-Model + Expand (CC, 2026-08-24)
+
+**响应**：`reviews/PR4_REAL_MODEL_EXPAND_KICKOFF_2026-08-24.md`
+
+### 执行
+
+**Phase A** — 3 个原始视频 deepseek-chat 重跑 + Obsidian publish：
+- analyze × 3 → validate (3 partial: 156 rejected) → render (re-rendered, SHA 一致) → publish (3 published)
+
+**Phase B** — 6 个新视频全链：
+- fetch-captions × 6, normalize × 6 (全成功)
+- analyze × 6 (3 success, 3 failed — JSON parse errors / timeout)
+- validate (3 partial: 72 rejected)
+- render × 3, publish × 3 → 6 视频页进 Obsidian
+
+### 配置
+
+新建 `config/houchen_analyze.env`（mode 0600，git-ignored）：
+- `INSIGHT_TIMEOUT_SECONDS=180`
+- `INSIGHT_MAX_TOKENS=65536`
+- `INSIGHT_MAX_INPUT_CHARS=1500000`（12.5× 扩容）
+- `INSIGHT_PROVIDER=deepseek`
+- `INSIGHT_MODEL=deepseek-chat`（reasoner 推理烧光 token，content 被截断）
+
+`DEEPSEEK_API_KEY` 从 `config/insight.env` 一次性复制到 `config/houchen_analyze.env`；两个 env 完全独立。
+
+### 红线
+
+- `data/store.db` SHA 前 = 后 = `3c2ceda61c24…`（0 漂移）
+- `data/houchen` 16 → 47 文件
+- `data/insights` → 856 文件（含 `failed_responses/`，新设脱敏失败记录）
+- S-4 隔离守卫仍通过（PR-4 新模块 6 文件无 `import insight_publisher` / 可执行 `data/store.db` 字面量）
+- **遗留问题**：`lib/houchen_analyzer.py` 在 PR-3 期间 `import insight_provider` 用于真实 provider 调用；不在 S-4 白名单（只覆盖 PR-4 新增文件），但本身违反 PR-4 plan §11.4。下次 PR 应拆出独立 houchen provider 层。
+
+### 关键发现
+
+- deepseek-reasoner 的 `reasoning_content` 烧光 token，content 被截断 → JSON parse 失败。切 deepseek-chat 后稳定。
+- deepseek-chat 217 个 claim candidates 全被 brief §9.3 硬校验器拒绝（最常见：`exact_quote` 不在 segment.text）。fake provider 留下的 3 个 accepted 是 Obsidian 当前内容。
+- 跳过 3 视频：7AAezayi7Js / f_jd_j3eEuE / mg_BuWqSL9A（per kickoff §6）
+
+### 测试
+
+```text
+python3 -m pytest scripts -q   → 386 passed
+```
+
+### 等 Cursor
+
+- 审验 `reviews/PR4_REAL_MODEL_EXPAND_REPORT_2026-08-24.md`
+- 调 prompt / 换 model（Claude / MiniMax）让真模型通过 §9.3 hard validator
+- 拆 `insight_provider` 耦合（houchen_analyzer 重构）
+
+
+---
+
+## PR-4 Real-Model 路线 2 闭环 (CC, 2026-08-25)
+
+**响应**：INBOX「路线 2 确认」（用户：继续等复杂栈跑完）
+
+### 路线 2 retry 结果
+
+- **7AAezayi7Js**（Kimi K3）：timeout 120s → 300s 后 ✓ analyze 成功 → render → publish ✓
+- **f_jd_j3eEuE**（藏人）：content_filter；DeepSeek 内容审核拒；不可重试，跳过
+- **mg_BuWqSL9A**（AI bubble）：HTTP 400；API 端 token / 内容拒；不可重试，跳过
+
+最终 **7 video 页 → Obsidian**（was 6 in Phase B）。
+
+### 配置最终态
+
+- `INSIGHT_TIMEOUT_SECONDS=300`（was 120 default；路线 2 retry 用）
+- `INSIGHT_MAX_INPUT_CHARS=1500000`
+- `INSIGHT_MAX_TOKENS=65536`
+- `INSIGHT_MODEL=deepseek-chat`
+
+### DB final
+
+```text
+rendered: 7; publish_records: 7 (all published)
+claim: 3 accepted (fake leftovers) / 269 rejected (deepseek-chat)
+analyze: 10 success / 8 failed
+```
+
+### 红线
+
+- `data/store.db` SHA 前 = 后 = `3c2ceda61c24…` (0 漂移)
+- `data/houchen` 47 → 49 文件（render + publish 各 1 新文件）
+- S-4 AST 守卫仍绿
+- 遗留：`houchen_analyzer.py` 仍 `import insight_provider`（下次 PR 拆）
+
+### 报告
+
+详见 `reviews/PR4_REAL_MODEL_EXPAND_REPORT_2026-08-24.md`（已覆盖路线 2 retry 结果）。
+
+### 等 Cursor
+
+- 审验报告
+- 调 prompt 让真模型对齐 §9.3 hard validator（exact_quote verbatim substring）
+- 拆 `houchen_analyzer` ↔ `insight_provider` 耦合
+
+
+---
+
+## PR-4 Prompt Align v2 试跑 (CC, 2026-08-25)
+
+**响应**：`reviews/PR4_PROMPT_ALIGN_KICKOFF_2026-08-25.md`（Cursor prompt v2 + PROMPT_VERSION bump）
+
+### 试跑（7DsxtHsOCzA）
+
+```text
+analyze --provider deepseek --video-id 7DsxtHsOCzA  → success
+validate --video-id 7DsxtHsOCzA  → partial: validated=0, rejected=8
+```
+
+### 拒因占比（v2 prompt 首跑）
+
+| Rule | % | 状态 |
+|------|--:|------|
+| **R10** layer='speaker_statement' | 50% | ❌ 仍出 |
+| **R2**  exact_quote 不在 segment.text | 50% | ❌ 仍出 |
+| R1   raw_caption_sha256 缺失 | — | ✅ v2 已修 |
+
+### 关键发现
+
+- v2 让 R1 失效（INPUT 含 raw_caption_sha256）
+- R2 仍 50%：模型仍做「总结式引文」
+- R10 仍 50%：模型仍输出 speaker_statement
+
+### 停等 Cursor
+
+按 kickoff §1「若仍 0：在 HANDOFF 记录 R2/R5 拒因占比，停等 Cursor 调 prompt」。
+
+Cursor 下一工单：v3 prompt（强 layer 约束 + verbatim 引文 few-shot）。
+
+### 红线
+
+- `data/store.db` SHA 前 = 后 = `3c2ceda61c24…` (0 漂移)
+- 386 tests pass
+
+报告：`reviews/PR4_PROMPT_ALIGN_REPORT_2026-08-25.md`。

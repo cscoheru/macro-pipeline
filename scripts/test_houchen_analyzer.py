@@ -253,5 +253,18 @@ class TestSegmentsForValidator(unittest.TestCase):
         self.assertEqual(proj[0]["text"], "")
 
 
+# ---------------------------------------------------------------------------
+# Prompt / schema alignment (brief §9.3)
+# ---------------------------------------------------------------------------
+
+class TestPromptSchema(unittest.TestCase):
+    def test_claim_layer_enum_excludes_speaker_statement(self):
+        schema = houchen_prompt.analysis_input_json_schema()
+        claim_layer = schema["$defs"]["claim_candidate"]["properties"]["layer"]
+        self.assertEqual(
+            claim_layer["enum"],
+            ["speaker_reasoning", "system_evaluation"])
+
+
 if __name__ == "__main__":
     unittest.main()

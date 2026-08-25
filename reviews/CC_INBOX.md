@@ -13,11 +13,9 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **工单** | `reviews/PR4_REAL_MODEL_EXPAND_KICKOFF_2026-08-24.md` |
-| **触发** | 用户「真模型，然后扩视频」 |
-| **实现** | Cursor 已接线 `houchen_analyze.env` + 真 provider |
-| **更新** | 2026-08-24 Cursor |
-| **完成后** | HANDOFF + `PR4_REAL_MODEL_EXPAND_REPORT_*`；INBOX → `WAIT_CURSOR` |
+| **工单** | `reviews/PR4_PROMPT_ALIGN_V3_KICKOFF_2026-08-25.md` |
+| **门禁** | validate `validated` ≥ 1 → render `--from-db` → publish |
+| **更新** | 2026-08-25 Cursor（用户「v3」） |
 
 ### STATUS 枚举
 

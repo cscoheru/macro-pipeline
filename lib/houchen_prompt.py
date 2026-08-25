@@ -21,7 +21,7 @@ import hashlib
 import json
 from typing import Any
 
-PROMPT_VERSION = "2026-08-24.1"
+PROMPT_VERSION = "2026-08-25.2"
 SCHEMA_VERSION = "claim_extraction_v1"
 
 
@@ -44,7 +44,8 @@ def build_analysis_input(*, video_id: str, transcript_version_id: str,
                          prompt_version: str = PROMPT_VERSION,
                          schema_version: str = SCHEMA_VERSION,
                          model: str = "",
-                         provider: str = "") -> dict:
+                         provider: str = "",
+                         raw_caption_sha256: str = "") -> dict:
     """Construct the canonical analysis INPUT bundle.
 
     `segments` is the verbatim list of `transcript_segment` rows (ordinal,
@@ -63,6 +64,7 @@ def build_analysis_input(*, video_id: str, transcript_version_id: str,
         "video_id": video_id,
         "transcript_version_id": transcript_version_id,
         "transcript_version_sha": transcript_version_sha,
+        "raw_caption_sha256": raw_caption_sha256,
         "domain_skeleton": list(domain_skeleton) if domain_skeleton is not None
                           else list(DEFAULT_DOMAIN_SKELETON),
         "model": model,
@@ -195,8 +197,7 @@ def analysis_input_json_schema() -> dict:
                                             "normative", "interpretive"]},
                     "speaker": {"type": ["string", "null"]},
                     "layer": {"type": "string",
-                              "enum": ["speaker_statement",
-                                       "speaker_reasoning",
+                              "enum": ["speaker_reasoning",
                                        "system_evaluation"]},
                     "temporal_scope": {"type": ["string", "null"]},
                     "modality": {"type": ["string", "null"]},

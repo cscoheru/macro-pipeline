@@ -29,6 +29,7 @@ import houchen_analyzer  # PR-3: claim extraction + provider orchestration
 import houchen_concept  # PR-3: domain seed + concept lifecycle
 import houchen_normalizer  # PR-2: deterministic transcript normalizer
 import houchen_paths
+import houchen_prompt
 import houchen_publish_paths  # PR-4 Phase 1: render/publish path resolution
 import houchen_publisher  # PR-4 Phase 1: VaultWriter protocol + ledger
 import houchen_render  # PR-4 Phase 1: pure Markdown renderer
@@ -41,7 +42,7 @@ import houchen_validator  # PR-3: brief §9.3 hard validator
 DEFAULT_NORMALIZER_NAME = houchen_normalizer.NORMALIZER_NAME
 DEFAULT_NORMALIZER_VERSION = houchen_normalizer.NORMALIZER_VERSION
 DEFAULT_ANALYSIS_PROVIDER = "fake"  # PR-3 v1: offline-only per audit F-6
-DEFAULT_PROMPT_VERSION = "2026-08-24.1"  # mirrors houchen_prompt.PROMPT_VERSION
+DEFAULT_PROMPT_VERSION = houchen_prompt.PROMPT_VERSION
 DEFAULT_SCHEMA_VERSION = "claim_extraction_v1"  # mirrors houchen_prompt.SCHEMA_VERSION
 
 
@@ -745,6 +746,7 @@ def run_analyze(conn, *, video_ids=None, pending_only=True, limit=None,
                 video_id=vid, transcript_version_id=tv_id,
                 transcript_version_sha=tv_sha,
                 segments=segments, model=model, provider=provider,
+                raw_caption_sha256=(raw[0] if raw else ""),
             )
             outcome = houchen_analyzer.call_provider(
                 input_payload=payload, input_sha256=sha,
@@ -1128,6 +1130,119 @@ def run_search(conn, *, kind, query, limit=20) -> dict:
              "rank": h.rank} for h in result.aliases],
     }
     return summary
+
+
+def _latest_successful_analyze_attempt(conn, video_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT ca.run_id, ca.att_id FROM corpus_attempt ca"
+        " JOIN corpus_run cr ON cr.run_id = ca.run_id"
+        " WHERE ca.video_id=? AND ca.stage='analyze'"
+        "   AND ca.outcome='success' AND cr.status='success'"
+        " ORDER BY ca.occurred_at DESC, ca.att_id DESC LIMIT 1",
+        (video_id,)).fetchone()
+
+
+def build_video_page_from_db(conn, video_id: str,
+                             *, analysis_run_id: str | None = None) -> houchen_render.VideoPage:
+    """Build a VideoPage from corpus DB rows for render/publish.
+
+    Uses the latest successful analyze run for the video unless
+    `analysis_run_id` is given explicitly. Accepted claims are joined
+    with `claim_source` for quote blocks.
+    """
+    vrow = conn.execute(
+        "SELECT canonical_url, title, published_at FROM video WHERE video_id=?",
+        (video_id,)).fetchone()
+    if vrow is None:
+        raise ValueError(f"unknown video_id: {video_id}")
+
+    if analysis_run_id is None:
+        row = _latest_successful_analyze_attempt(conn, video_id)
+        if row is None:
+            raise ValueError(f"no successful analyze for video_id: {video_id}")
+        analysis_run_id = row["run_id"]
+    else:
+        row = conn.execute(
+            "SELECT 1 FROM corpus_run WHERE run_id=? AND kind='analyze'",
+            (analysis_run_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"unknown analysis_run_id: {analysis_run_id}")
+
+    artifact = houchen_paths.analysis_artifact_path(analysis_run_id)
+    item = houchen_analyzer.load_artifact_item(artifact, video_id)
+    bundle = houchen_analyzer.load_input_bundle(item["input_sha256"])
+    transcript_version_id = bundle.get("transcript_version_id")
+    if not transcript_version_id:
+        raise ValueError(
+            f"missing transcript_version_id in input bundle for run {analysis_run_id}")
+    prompt_version = bundle.get("prompt_version") or houchen_prompt.PROMPT_VERSION
+
+    counts = conn.execute(
+        "SELECT status, COUNT(*) AS n FROM claim"
+        " WHERE video_id=? AND analysis_run_id=? GROUP BY status",
+        (video_id, analysis_run_id)).fetchall()
+    by_status = {r["status"]: r["n"] for r in counts}
+
+    claim_rows = conn.execute(
+        "SELECT c.claim_id, c.claim_text, c.claim_type, c.layer, c.speaker,"
+        " cs.exact_quote, cs.timestamp_url, cs.transcript_version_id"
+        " FROM claim c"
+        " JOIN claim_source cs ON cs.claim_id = c.claim_id"
+        " WHERE c.video_id=? AND c.analysis_run_id=? AND c.status='accepted'"
+        " ORDER BY cs.segment_start_ordinal, c.claim_id",
+        (video_id, analysis_run_id)).fetchall()
+    claims = [
+        houchen_render.ClaimSummary(
+            claim_id=r["claim_id"],
+            claim_text=r["claim_text"],
+            claim_type=r["claim_type"],
+            layer=r["layer"],
+            speaker=r["speaker"],
+            exact_quote=r["exact_quote"],
+            timestamp_url=r["timestamp_url"],
+            transcript_version_id=r["transcript_version_id"],
+        )
+        for r in claim_rows
+    ]
+
+    claim_ids = [c.claim_id for c in claims]
+    concept_ids: list[str] = []
+    if claim_ids:
+        placeholders = ",".join("?" * len(claim_ids))
+        concept_rows = conn.execute(
+            f"SELECT DISTINCT concept_id FROM claim_concept"
+            f" WHERE claim_id IN ({placeholders})",
+            claim_ids).fetchall()
+        concept_ids = [r["concept_id"] for r in concept_rows]
+
+    forecast_ids: list[str] = []
+    if claim_ids:
+        placeholders = ",".join("?" * len(claim_ids))
+        forecast_rows = conn.execute(
+            f"SELECT forecast_id FROM forecast"
+            f" WHERE claim_id IN ({placeholders})",
+            claim_ids).fetchall()
+        forecast_ids = [r["forecast_id"] for r in forecast_rows]
+
+    canonical_url = vrow["canonical_url"] or ""
+    title = vrow["title"] or ""
+    published_at = vrow["published_at"] or ""
+
+    return houchen_render.VideoPage(
+        video_id=video_id,
+        canonical_url=canonical_url,
+        title=title,
+        published_at=published_at,
+        transcript_version_id=transcript_version_id,
+        analysis_run_id=analysis_run_id,
+        prompt_version=prompt_version,
+        claim_count_accepted=by_status.get("accepted", 0),
+        claim_count_rejected=by_status.get("rejected", 0),
+        claim_count_needs_review=by_status.get("needs_review", 0),
+        claims=claims,
+        concept_ids=concept_ids,
+        forecast_ids=forecast_ids,
+    )
 
 
 # ---------------------------------------------------------------------------

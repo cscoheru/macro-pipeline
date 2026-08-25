@@ -84,7 +84,8 @@ def _call_real_provider(input_payload: dict, *, provider: str,
 def build_input_payload(*, video_id: str, transcript_version_id: str,
                          transcript_version_sha: str,
                          segments: list[dict],
-                         model: str = "", provider: str = "") -> tuple[dict, str]:
+                         model: str = "", provider: str = "",
+                         raw_caption_sha256: str = "") -> tuple[dict, str]:
     """Build the canonical input bundle and its SHA-256."""
     payload = houchen_prompt.build_analysis_input(
         video_id=video_id,
@@ -93,6 +94,7 @@ def build_input_payload(*, video_id: str, transcript_version_id: str,
         segments=segments,
         model=model,
         provider=provider,
+        raw_caption_sha256=raw_caption_sha256,
     )
     sha = houchen_prompt.input_sha256(payload)
     return payload, sha

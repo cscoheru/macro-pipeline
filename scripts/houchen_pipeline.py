@@ -503,6 +503,43 @@ def cmd_search(args):
         conn.close()
 
 
+def _load_render_page_obj(conn, args):
+    """Return a page dataclass for render from --from-json or --from-db."""
+    import dataclasses
+    from houchen_render import (
+        ClaimSummary, ConceptPage, ConceptSource, CoveragePage,
+        ForecastPage, ReviewQueuePage, VideoPage,
+    )
+    kind = args.kind
+    if args.from_db:
+        if kind != "video":
+            raise ValueError("--from-db is only supported for --kind video")
+        return houchen_runner.build_video_page_from_db(conn, args.page_key)
+
+    if not args.from_json:
+        raise ValueError("render requires --from-json or --from-db")
+
+    with open(args.from_json, encoding="utf-8") as fh:
+        data = json.load(fh)
+    cls = {
+        "video": VideoPage, "concept": ConceptPage,
+        "forecast": ForecastPage, "review_queue": ReviewQueuePage,
+        "coverage": CoveragePage,
+    }.get(kind)
+    if cls is None:
+        raise ValueError(f"unsupported page kind for render-from-json: {kind!r}")
+    nested = {
+        "claims": ClaimSummary,
+        "canonical_definition_sources": ConceptSource,
+        "speaker_use_sources": ConceptSource,
+        "system_evaluations": ClaimSummary,
+    }
+    for k, dccls in nested.items():
+        if k in data and isinstance(data[k], list):
+            data[k] = [dccls(**item) for item in data[k]]
+    return cls(**data)
+
+
 def cmd_render(args):
     """PR-4 Phase 1: render one page to Markdown (write-side).
 
@@ -524,38 +561,26 @@ def cmd_render(args):
         return EXIT_USAGE
 
     if args.dry_run:
-        # Pure plan: print the would-be path and exit. No DB, no FS.
-        import dataclasses
-        from houchen_render import (
-            ClaimSummary, ConceptPage, ConceptSource, CoveragePage,
-            ForecastPage, ReviewQueuePage, VideoPage,
-        )
-        with open(args.from_json, encoding="utf-8") as fh:
-            data = json.load(fh)
-        kind = args.kind
-        cls = {
-            "video": VideoPage, "concept": ConceptPage,
-            "forecast": ForecastPage, "review_queue": ReviewQueuePage,
-            "coverage": CoveragePage,
-        }.get(kind)
-        if cls is None:
-            print(f"unsupported page kind for render-from-json: {kind!r}",
-                  file=sys.stderr)
-            return EXIT_USAGE
-        nested = {
-            "claims": ClaimSummary,
-            "canonical_definition_sources": ConceptSource,
-            "speaker_use_sources": ConceptSource,
-            "system_evaluations": ClaimSummary,
-        }
-        for k, dccls in nested.items():
-            if k in data and isinstance(data[k], list):
-                data[k] = [dccls(**item) for item in data[k]]
-        page_obj = cls(**data)
-        markdown = houchen_render.render_page(kind, page_obj)
+        # Pure plan: print the would-be path and exit. No FS writes.
+        if args.from_db:
+            try:
+                conn = houchen_store.connect()
+            except houchen_paths.DataRootError as e:
+                print(f"data-root error: {e}", file=sys.stderr)
+                return EXIT_CONFIG
+            try:
+                page_obj = _load_render_page_obj(conn, args)
+            except ValueError as e:
+                print(f"render rejected: {e}", file=sys.stderr)
+                return EXIT_USAGE
+            finally:
+                conn.close()
+        else:
+            page_obj = _load_render_page_obj(None, args)
+        markdown = houchen_render.render_page(args.kind, page_obj)
         plan = {
             "dry_run": True,
-            "kind": kind, "page_key": args.page_key,
+            "kind": args.kind, "page_key": args.page_key,
             "render_sha256": houchen_render.render_sha256(markdown),
             "note": "render --dry-run: no file written, no row recorded",
         }
@@ -569,39 +594,9 @@ def cmd_render(args):
         return EXIT_CONFIG
 
     try:
-        # Page data is supplied as JSON; the caller maps it to the
-        # correct dataclass for the chosen kind.
-        import dataclasses
-        from houchen_render import (
-            ClaimSummary, ConceptPage, ConceptSource, CoveragePage,
-            ForecastPage, ReviewQueuePage, VideoPage,
-        )
-        with open(args.from_json, encoding="utf-8") as fh:
-            data = json.load(fh)
-        kind = args.kind
-        cls = {
-            "video": VideoPage, "concept": ConceptPage,
-            "forecast": ForecastPage, "review_queue": ReviewQueuePage,
-            "coverage": CoveragePage,
-        }.get(kind)
-        if cls is None:
-            print(f"unsupported page kind for render-from-json: {kind!r}",
-                  file=sys.stderr)
-            return EXIT_USAGE
-        # Convert dict-of-dict substructures (e.g. claims / sources)
-        # to their dataclasses if present.
-        nested = {
-            "claims": ClaimSummary,
-            "canonical_definition_sources": ConceptSource,
-            "speaker_use_sources": ConceptSource,
-            "system_evaluations": ClaimSummary,
-        }
-        for k, dccls in nested.items():
-            if k in data and isinstance(data[k], list):
-                data[k] = [dccls(**item) for item in data[k]]
-        page_obj = cls(**data)
+        page_obj = _load_render_page_obj(conn, args)
         summary = houchen_runner.run_render(
-            conn, kind=kind, page_key=args.page_key, page_obj=page_obj,
+            conn, kind=args.kind, page_key=args.page_key, page_obj=page_obj,
             include_claim_pages=args.include_claim_pages,
             dry_run=args.dry_run,
         )
@@ -784,8 +779,10 @@ def build_parser():
                     help="Page kind to render (claim OFF by default)")
     pr.add_argument("--page-key", required=True,
                     help="Stable identifier for this page")
-    pr.add_argument("--from-json", required=True,
+    pr.add_argument("--from-json",
                     help="Path to a JSON file with the page dataclass data")
+    pr.add_argument("--from-db", action="store_true",
+                    help="Load video page from corpus DB (video kind only)")
     pr.add_argument("--include-claim-pages", action="store_true",
                     help="Opt in to claim pages (S-2 audit fix)")
 

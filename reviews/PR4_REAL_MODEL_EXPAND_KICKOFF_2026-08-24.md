@@ -10,6 +10,8 @@
 
 两阶段：**A** 用真模型重跑已有 3 视频 analyze→validate→render→publish；**B** 再扩 5–8 个新视频全链。Cursor 已实现 `houchen_analyze.env` + 真 provider 接线。
 
+**用户裁定（2026-08-24）**：在「极简字幕库」与「本工单」之间选择 **继续路线 2**；Obsidian 三页当前仍无 accepted，Phase A 结束必须 re-render + re-publish。
+
 ---
 
 ## 0. 同步代码
