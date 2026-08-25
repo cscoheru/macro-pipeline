@@ -733,3 +733,43 @@ d91a8be feat(houchen): WPS import-transcript path
 ### INBOX
 
 `WAIT_CURSOR`
+
+
+---
+
+## Corpus Expand (CC, 2026-08-25)
+
+**响应**：`reviews/CORPUS_EXPAND_KICKOFF_2026-08-25.md`
+
+### A — 字幕 P1
+
+- pending=0, frozen=53, normalized=53
+
+### B — 扩竖切
+
+- 23/25 视频成功（2 失败：analyze fail + accepted=0）
+- **160 new accepted claims**
+- 39 video pages published to Obsidian
+
+### C — Macro Review (PR-5.1)
+
+- 20 candidates reviewed → 20 evaluation (macro_bridge) imported
+- 新增 `review_queue` / `mark_reviewed` / `import_reviewed` CLI
+- scan dedupe：同 (claim_id, macro_source, macro_series, macro_period) 不重复
+
+### Commit
+
+```text
+95a1dcc feat(houchen): macro-bridge review workflow (PR-5.1)
+→ pushed to origin/main
+```
+
+### 红线
+
+- store.db SHA `4a8e409b…` ✅
+- 434 tests pass
+- 不 whisper / 不弱化 validator
+
+### INBOX
+
+`WAIT_CURSOR`
