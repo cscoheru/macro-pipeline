@@ -2,7 +2,20 @@
 
 > **签发**：Cursor（2026-08-25）  
 > **触发**：用户短词「全量字幕 / PR-5 / ASR」  
-> **原则**：按 brief 顺序推进；**不问用户**；本工单**禁止**全频道 637 analyze
+> **原则**：按 brief 顺序推进；**不问用户**；本工单**禁止**全频道 637 analyze  
+> **API 安全**：代理会对上下文做 `data_inspection`；见下方「上下文纪律」
+
+---
+
+## 上下文纪律（防 compaction / API 400）
+
+若出现 `data_inspection_failed` / `Input text data may contain inappropriate content`：
+
+1. **新开 CC 会话**（旧会话不要 `/compact`）
+2. 只读：`CC_INBOX.md` + 本 kickoff + 用 `sqlite3` **聚合计数**
+3. **禁止**把下列内容粘进对话或写入报告正文：完整字幕、敏感视频 title/描述、DOCX 原文、大段 HANDOFF 历史
+4. 报告只用：video_id、outcome 枚举、计数、SHA
+5. 已知易触发过滤的 ID（跳过 analyze；caption 失败记 ID 即可）：`f_jd_j3eEuE`
 
 ---
 
