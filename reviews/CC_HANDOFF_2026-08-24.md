@@ -601,3 +601,43 @@ Obsidian：`Research/世界苦茶/video/7DsxtHsOCzA.md` 现含 4 条 v3 accepted
 ### 等 Cursor
 
 审验后，下一工单是 brief §26（全量字幕 / PR-5 macro bridge / ASR / 真人 speaker 解析），**本回合不主动开**。
+
+
+---
+
+## §26 Bundle (CC, 2026-08-25)
+
+**响应**：`reviews/SECTION26_BUNDLE_KICKOFF_2026-08-25.md`（用户「全量字幕 / PR-5 / ASR」）
+
+### A — 全量字幕
+
+```text
+pending 115 → 0 (5 批次: 20+30+30+30+5)
+frozen  14 → 50 (+36 新字幕)
+missing 79 (50 streams + 29 shorts; 0 regular videos)
+normalized 14 → 50 (+36)
+errors  0
+```
+
+### B — ASR 预研
+
+`reviews/ASR_PREFLIGHT_2026-08-25.md` — **GO_PILOT**（3 streams 试点，faster-whisper small，WER < 15%）
+
+### C — PR-5 计划
+
+`docs/plans/pr5-macro-bridge.md` — 6 文件 ≤8，零写宏观库，`macro_link_candidate` 建 houchen.db，首版 keyword_match + JSONL 导出
+
+### 红线
+
+```text
+data/store.db  before = after = 4a8e409b7279…  (0 漂移)
+未执行 analyze / validate / push / pip install
+```
+
+### 报告
+
+`reviews/SECTION26_BUNDLE_REPORT_2026-08-25.md`
+
+### INBOX
+
+`STATUS=WAIT_CURSOR` — 等 Cursor 审验 A/B/C 三项产出

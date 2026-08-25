@@ -7,27 +7,18 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_CURSOR
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
+| **STATUS** | `WAIT_CURSOR` |
 | **工单** | `reviews/SECTION26_BUNDLE_KICKOFF_2026-08-25.md` |
 | **授权** | 用户「全量字幕 / PR-5 / ASR」 |
-| **故障** | 旧会话 compaction → `data_inspection_failed`（代理内容审查，非 pipeline bug） |
-| **恢复** | **新开会话**；禁止对本话题 `/compact`；报告只写 ID+计数 |
-| **更新** | 2026-08-25 Cursor |
-
-### 恢复后立刻做
-
-1. `git pull`
-2. 读本文件 + `SECTION26_BUNDLE_KICKOFF`（含「上下文纪律」）
-3. 从阶段 A 继续（已完成的 caption 批次用 sqlite **COUNT** 核对后跳过，勿重贴字幕）
-
-### 禁止伪裁定门
-
-不要问用户「要不要换模型 / 要不要停」。按 kickoff A→B→C 做完 → `WAIT_CURSOR`。
+| **完成** | A(frozen 50, missing 79, pending 0) + B(GO_PILOT) + C(6 files ≤8) |
+| **报告** | `reviews/SECTION26_BUNDLE_REPORT_2026-08-25.md` |
+| **SHA** | `4a8e409b…` before == after ✅ |
+| **更新** | 2026-08-25 CC |
 
 ### STATUS 枚举
 
