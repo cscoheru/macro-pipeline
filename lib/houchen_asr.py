@@ -5,6 +5,7 @@ Strict: refuses shorts collection.
 """
 from __future__ import annotations
 
+import fcntl
 import sqlite3
 import sys
 from pathlib import Path
@@ -63,7 +64,24 @@ def transcribe(video_id: str, model_name: str = "small",
 
     VTT_DIR.mkdir(parents=True, exist_ok=True)
     tmp_path = VTT_DIR / f"{video_id}.vtt.tmp"
+    lock_path = VTT_DIR / f"{video_id}.lock"
+    lock_f = open(lock_path, "a+")
+    try:
+        fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as e:
+        lock_f.close()
+        raise RuntimeError(
+            f"ASR already running for {video_id}; do not start a second whisper"
+        ) from e
+    try:
+        return _transcribe_locked(
+            video_id, model_name, audio_path, vtt_path, tmp_path)
+    finally:
+        fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+        lock_f.close()
 
+
+def _transcribe_locked(video_id, model_name, audio_path, vtt_path, tmp_path):
     from faster_whisper import WhisperModel
 
     print(f"Loading {model_name} model...", file=sys.stderr)
@@ -91,6 +109,7 @@ def transcribe(video_id: str, model_name: str = "small",
                              "end": round(seg.end, 2),
                              "text": seg.text.strip()})
                 if i % 100 == 0:
+                    f.flush()
                     print(f"  ...{i} segments", file=sys.stderr)
         tmp_path.replace(vtt_path)
     except Exception:

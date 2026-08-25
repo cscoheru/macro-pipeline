@@ -17,8 +17,8 @@ STATUS=DO
 | **剩余** | ASR 试点未完成的 streams |
 | **工单** | `reviews/ASR_LOCAL_PILOT_KICKOFF_2026-08-25.md` |
 | **已完成（勿重做）** | 概念 P4 PASS；`KLJJuMybVsc` PASS；`epg0aoUbPN4` 已 accepted |
-| **还要做** | Cursor 已在跑 `E9uJV2bwzjM`→`jfXAn1dgkyw` 转写+analyze；**禁止并行第二份 whisper** |
-| **更新** | 2026-08-25 Cursor 接管剩余 ASR（修了 0B VTT 假缓存） |
+| **还要做** | 单进程转写 `E9uJV2bwzjM`→`jfXAn1dgkyw`；有 `.lock` 则 **禁止** 再开 asr-transcribe |
+| **更新** | 2026-08-25 杀掉 CC 并行 whisper；flock 防重入 |
 
 完成后 `WAIT_CURSOR`（Cursor 会自动验收并可能派 ASR 扩 5）。
 
