@@ -45,4 +45,4 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 18. [x] MiniMax-M3 抽 claim 第 6 批 5 streams（4/5 analyze；accepted 5；`H8H_pVRdkKo` invalid JSON）  
 19. [x] MiniMax-M3 抽 claim 第 7 批 5 streams（5/5 analyze；accepted 32；`H8H_pVRdkKo` 补跑成功）  
 20. [x] MiniMax-M3 抽 claim 第 8 批 5 streams（analyze 5/5；accepted 23；拒因 R2）  
-21. [ ] MiniMax-M3 抽 claim 第 9 批 1 stream（工单 `CLAIM_MINIMAX_M3_BATCH9_KICKOFF`；`o1KevNmFggw`）
+21. [x] MiniMax-M3 抽 claim 第 9 批 1 stream（analyze 1/1；accepted 6）。streams 队列空

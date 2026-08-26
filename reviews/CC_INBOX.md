@@ -9,19 +9,19 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/CLAIM_MINIMAX_M3_BATCH9_KICKOFF_2026-08-26.md` |
+| **STATUS** | `WAIT_USER` |
+| **工单** | （无；队列空） |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b–5j ASR。MiniMax-M3 claim batch1–8。**禁止 DeepSeek** |
-| **还要做** | MiniMax-M3 抽 claim 第 9 批（最后 1 stream `o1KevNmFggw`）。有 analyze pid 禁止第二路。禁止 ASR。**禁止 Wait pid 74695** |
-| **更新** | 2026-08-26 17:15 Cursor：batch8 PASS 5/5，续 batch9 收尾 |
+| **已完成（勿重做）** | 试点 3；扩 5；5b–5j ASR。MiniMax-M3 claim batch1–9。streams 未 analyze 队列空。**禁止 DeepSeek** |
+| **还要做** | 无。队列空 |
+| **更新** | 2026-08-26 17:16 Cursor：batch9 PASS 1/1。INBOX=`WAIT_USER`「队列空」 |
 
-完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
+Stop。禁止 ASR。禁止 Wait pid 74695。
 
 ### STATUS 枚举
 

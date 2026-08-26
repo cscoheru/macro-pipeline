@@ -282,3 +282,8 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 
 5/5 analyze；accepted 23。余 1 条。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH8_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH9_KICKOFF`（`o1KevNmFggw`）。
+
+### Cursor 17:16 — batch9 DONE，队列空
+
+1/1 analyze；accepted 6。streams 未 analyze 0。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH9_REPORT_2026-08-26.md`。INBOX=`WAIT_USER`「队列空」。
