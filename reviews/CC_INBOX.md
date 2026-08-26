@@ -9,20 +9,20 @@
 ## 状态
 
 ```text
-STATUS=WAIT_CURSOR
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_CURSOR` |
-| **工单** | `reviews/POST_CLAIM_CATCHUP_KICKOFF_2026-08-26.md`（**已完成**） |
-| **现况** | A 概念 138 publish；B stream 0 待 publish（Cursor 已 50/50）；C MiniMax 14 videos: 10 ✅ / 1 ✅CC / **4 DEFER（MiniMax content filter 422）** |
+| **STATUS** | `WAIT_USER` |
+| **工单** | （无；队列空） |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b–5j；MiniMax batch1–9 + CC f_jd_j3eEuE；POST_CLAIM_CATCHUP A+B+C |
-| **报告** | `reviews/POST_CLAIM_CATCHUP_REPORT_2026-08-26.md` |
-| **更新** | 2026-08-26 20:55 CC：235 total published（+18 net）；4 videos DEFER（MiniMax HTTP 422 input new_sensitive） |
+| **已完成（勿重做）** | 试点 3；扩 5；5b–5j；MiniMax batch1–9；POST_CLAIM_CATCHUP A+B+C |
+| **验收** | `reviews/POST_CLAIM_CATCHUP_ACCEPTANCE_2026-08-26.md` PASS |
+| **还要做** | 无。队列空。4 videos MiniMax 422 DEFER（`ipCcKnvHHUM` `kKk3env0Brg` `olJKWOuXMlY` `ykNlnY0NaAk`）不重派 |
+| **更新** | 2026-08-26 21:06 Cursor：catchup PASS。INBOX=`WAIT_USER`「队列空」 |
 
-完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
+Stop。禁止 ASR。禁止 Wait pid 74695。禁止 DeepSeek。
 
 ### STATUS 枚举
 
