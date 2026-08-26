@@ -277,3 +277,8 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 
 5/5 analyze；accepted 32。`H8H_pVRdkKo` 补跑成功。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH7_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH8_KICKOFF`。
+
+### Cursor 17:15 — batch8 DONE，派 batch9
+
+5/5 analyze；accepted 23。余 1 条。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH8_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH9_KICKOFF`（`o1KevNmFggw`）。
