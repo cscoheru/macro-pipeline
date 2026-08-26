@@ -1,9 +1,9 @@
 {
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
-  "inbox_status": "DO",
-  "ticket": "reviews/ASR_EXPAND5J_KICKOFF_2026-08-26.md",
+  "inbox_status": "WAIT_USER",
+  "ticket": null,
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 21,
-  "note": "DO: ASR expand-5j retry 8GXfASgyo1A; no DeepSeek; 5i PASS 4/5"
+  "cursor_seq": 22,
+  "note": "WAIT_USER: queue empty; streams ASR 50/50; 5j PASS 1/1; no DeepSeek; shorts ignored"
 }

@@ -229,3 +229,8 @@ INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
 
 4/5 转写+import PASS；`8GXfASgyo1A` 下载 FAIL（connection reset，10 次后放弃）。store SHA 未变（`07d418dc…`）。
 报告 `reviews/ASR_EXPAND5I_REPORT_2026-08-26.md`。下一刀 `ASR_EXPAND5J_KICKOFF`（补最后 1 条 stream）。
+
+### Cursor 15:45 — expand-5j DONE
+
+1/1 转写+import PASS；FAIL=0。store SHA 未变（`07d418dc…`）。streams **50/50**。
+报告 `reviews/ASR_EXPAND5J_REPORT_2026-08-26.md`。INBOX=`WAIT_USER` 队列空。

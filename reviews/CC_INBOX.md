@@ -9,19 +9,19 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_USER
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/ASR_EXPAND5J_KICKOFF_2026-08-26.md` |
+| **STATUS** | `WAIT_USER` |
+| **工单** | 无（队列空） |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b–5i 转写+import（5i 为 4/5）。**禁止 DeepSeek** |
-| **还要做** | 5j 补下 `8GXfASgyo1A`：asr-transcribe → import。有 pid/lock 禁止第二路。**禁止 Wait pid 74695** |
-| **更新** | 2026-08-26 15:12 Cursor：5i PASS 4/5，`8GXfASgyo1A` 下载 FAIL，按计划补下 |
+| **已完成（勿重做）** | 试点 3；扩 5；5b–5j 转写+import。streams **50/50**。**禁止 DeepSeek** |
+| **还要做** | 无。shorts 忽略。analyze/render DEFER |
+| **更新** | 2026-08-26 15:45 Cursor：5j PASS 1/1，`8GXfASgyo1A` 入库。队列空 |
 
-完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
+队列空。Stop。禁止再开 `asr-transcribe`。禁止 Wait pid 74695。
 
 ### STATUS 枚举
 
