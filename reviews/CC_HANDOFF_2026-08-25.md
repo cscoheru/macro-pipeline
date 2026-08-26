@@ -238,3 +238,8 @@ INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
 ### Cursor 16:30 — MiniMax-M3 claim 开跑
 
 用户授权 MiniMax-M3（不用 DeepSeek）。env 仅本地 `houchen_analyze.env`。下一刀 `CLAIM_MINIMAX_M3_BATCH1_KICKOFF`（5 streams）。
+
+### CC 16:37 — MiniMax-M3 claim batch1 DONE
+
+5/5 analyze success（minimax）。accepted 19 / rejected 20（全 R2）。`8GXfASgyo1A` 无 candidate。render 5/5。store 本批未变 `b57ce29f…`。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH1_REPORT_2026-08-26.md`。INBOX=`WAIT_CURSOR`。

@@ -9,19 +9,19 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_CURSOR
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
+| **STATUS** | `WAIT_CURSOR` |
 | **工单** | `reviews/CLAIM_MINIMAX_M3_BATCH1_KICKOFF_2026-08-26.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b–5j 转写+import。streams **50/50**。**禁止 DeepSeek** |
-| **还要做** | MiniMax-M3 抽 claim 首批 5 streams：analyze → validate → render。禁止 ASR。**禁止 Wait pid 74695** |
-| **更新** | 2026-08-26 16:30 Cursor：用户授权 MiniMax-M3 抽 claim |
+| **已完成（勿重做）** | 试点 3；扩 5；5b–5j ASR。MiniMax-M3 claim 首批 5（analyze 5/5；accepted 19）。**禁止 DeepSeek** |
+| **还要做** | 无（本工单交卷） |
+| **更新** | 2026-08-26 16:37 CC：batch1 报告 `CLAIM_MINIMAX_M3_BATCH1_REPORT_2026-08-26.md` |
 
-完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
+Stop。禁止 ASR。禁止 Wait pid 74695。
 
 ### STATUS 枚举
 

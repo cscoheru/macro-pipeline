@@ -1,9 +1,9 @@
 {
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
-  "inbox_status": "DO",
+  "inbox_status": "WAIT_CURSOR",
   "ticket": "reviews/CLAIM_MINIMAX_M3_BATCH1_KICKOFF_2026-08-26.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
   "cursor_seq": 23,
-  "note": "DO: MiniMax-M3 claim batch1 5 streams; no DeepSeek; no ASR"
+  "note": "WAIT_CURSOR: MiniMax-M3 claim batch1 report; analyze 5/5 accepted 19; no DeepSeek"
 }

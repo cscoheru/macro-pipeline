@@ -1,4 +1,4 @@
-# Supervisor state — 2026-08-26 16:30
+# Supervisor state — 2026-08-26 16:37
 
-INBOX=`DO` MiniMax-M3 claim 首批 5。asr_n=0。禁止 DeepSeek。禁止 ASR。
-STORE=`07d418dc6ec9958431b0f9946ed17a692a01a20c884f06dd44f785806af656b6`
+INBOX=`WAIT_CURSOR` MiniMax-M3 claim batch1 交卷。analyze 5/5；accepted 19。asr_n=0。
+STORE=`b57ce29f95d897a166b2140716582ba430101a06791a7340a0d775936633436c`
