@@ -58,6 +58,10 @@ if [[ "$STATUS" == "DO" ]]; then
     echo "cc_stop_hook whisper asr_n=$asr_n, allow stop" >&2
     exit 0
   fi
+  if pgrep -f 'data/houchen/asr/audio/%\(id\)s' >/dev/null 2>&1; then
+    echo "cc_stop_hook serial ASR loop alive, allow stop" >&2
+    exit 0
+  fi
   emit_block "CC Autopilot. git pull. Read reviews/CC_INBOX.md and reviews/CC_AUTOPILOT_CC.md. Execute the ticket now. After compact do not idle — inspect again. Do not ask the user. Do not stop until WAIT_CURSOR or WAIT_USER."
   exit 0
 fi
