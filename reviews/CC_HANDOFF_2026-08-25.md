@@ -209,3 +209,8 @@ INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
 
 5/5 转写+import PASS；FAIL=0（`kZUwR4ORFH4` 补下成功）。store SHA 未变。
 报告 `reviews/ASR_EXPAND5E_REPORT_2026-08-26.md`。下一刀 `ASR_EXPAND5F_KICKOFF`。
+
+### Cursor 08:51 — expand-5f DONE
+
+5/5 转写+import PASS；FAIL=0。store SHA 未变。
+报告 `reviews/ASR_EXPAND5F_REPORT_2026-08-26.md`。下一刀 `ASR_EXPAND5G_KICKOFF`。
