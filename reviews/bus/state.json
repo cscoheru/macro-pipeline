@@ -1,9 +1,9 @@
 {
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
-  "inbox_status": "WAIT_USER",
-  "ticket": null,
+  "inbox_status": "DO",
+  "ticket": "reviews/POST_CLAIM_CATCHUP_KICKOFF_2026-08-26.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 32,
-  "note": "WAIT_USER: queue empty; MiniMax-M3 claim batches 1-9 done; no DeepSeek"
+  "cursor_seq": 33,
+  "note": "DO: post-claim catchup concepts+publish+14 videos MiniMax; no 637/shorts/cloud ASR"
 }

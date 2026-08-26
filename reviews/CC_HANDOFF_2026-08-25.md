@@ -287,3 +287,8 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 
 1/1 analyze；accepted 6。streams 未 analyze 0。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH9_REPORT_2026-08-26.md`。INBOX=`WAIT_USER`「队列空」。
+
+### Cursor 20:43 — 用户自行裁定，开 catchup
+
+概念 refresh + stream publish + videos 14 支 MiniMax。637 catalog / shorts / 云 ASR / store.db 仍不做。
+工单 `reviews/POST_CLAIM_CATCHUP_KICKOFF_2026-08-26.md`。
