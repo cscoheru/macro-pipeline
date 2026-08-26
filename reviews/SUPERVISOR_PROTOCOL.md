@@ -39,4 +39,5 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 12. [x] ASR 5j 补下 `8GXfASgyo1A`（零 DeepSeek；1/1 入库）。streams 50/50  
 13. [x] MiniMax-M3 抽 claim 首批 5 streams（analyze 5/5；accepted 19；拒因 R2）  
 14. [x] MiniMax-M3 抽 claim 第 2 批 5 streams（4/5 analyze；accepted 18；`2zyAnqllesM` invalid JSON）  
-15. [ ] MiniMax-M3 抽 claim 第 3 批（补 `2zyAnqllesM`；工单 `CLAIM_MINIMAX_M3_BATCH3_KICKOFF`）
+15. [x] MiniMax-M3 抽 claim 第 3 批（5/5 analyze；accepted 13；`2zyAnqllesM` 补跑成功）  
+16. [ ] MiniMax-M3 抽 claim 第 4 批 5 streams（工单 `CLAIM_MINIMAX_M3_BATCH4_KICKOFF`）

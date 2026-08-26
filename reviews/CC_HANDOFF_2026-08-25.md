@@ -252,3 +252,8 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 
 4/5 analyze；accepted 18。`2zyAnqllesM` `provider_error` invalid JSON。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH2_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH3_KICKOFF`。
+
+### Cursor 16:54 — batch3 DONE，派 batch4
+
+5/5 analyze；accepted 13。`2zyAnqllesM` 补跑成功。`eeMeb48BT5w` 无 candidate。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH3_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH4_KICKOFF`。
