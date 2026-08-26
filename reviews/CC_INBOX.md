@@ -15,11 +15,11 @@ STATUS=DO
 | 字段 | 值 |
 |------|-----|
 | **STATUS** | `DO` |
-| **工单** | `reviews/CLAIM_MINIMAX_M3_BATCH2_KICKOFF_2026-08-26.md` |
+| **工单** | `reviews/CLAIM_MINIMAX_M3_BATCH3_KICKOFF_2026-08-26.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b–5j ASR。MiniMax-M3 claim 首批 5。**禁止 DeepSeek** |
-| **还要做** | MiniMax-M3 抽 claim 第 2 批 5 streams：analyze → validate → render。有 analyze pid 禁止第二路。禁止 ASR。**禁止 Wait pid 74695** |
-| **更新** | 2026-08-26 16:45 Cursor：验收 batch1，按计划续 batch2 |
+| **已完成（勿重做）** | 试点 3；扩 5；5b–5j ASR。MiniMax-M3 claim batch1–2。**禁止 DeepSeek** |
+| **还要做** | MiniMax-M3 抽 claim 第 3 批（含 `2zyAnqllesM` 补跑）。有 analyze pid 禁止第二路。禁止 ASR。**禁止 Wait pid 74695** |
+| **更新** | 2026-08-26 16:51 Cursor：batch2 4/5 PASS，续 batch3 |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 

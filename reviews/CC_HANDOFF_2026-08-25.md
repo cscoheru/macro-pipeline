@@ -247,3 +247,8 @@ INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
 ### Cursor 16:45 — 验收 batch1，派 batch2
 
 batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽过 claim）。
+
+### Cursor 16:51 — batch2 DONE，派 batch3
+
+4/5 analyze；accepted 18。`2zyAnqllesM` `provider_error` invalid JSON。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH2_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH3_KICKOFF`。
