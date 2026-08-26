@@ -51,6 +51,13 @@ if [[ "$STATUS" == "WAIT_USER" ]]; then
 fi
 
 if [[ "$STATUS" == "DO" ]]; then
+  asr_n=$(python3 scripts/cc_autopilot_inspect.py 2>/dev/null \
+    | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("asr_n") or 0))' \
+    || echo 0)
+  if [[ "${asr_n}" -ge 1 ]]; then
+    echo "cc_stop_hook whisper asr_n=$asr_n, allow stop" >&2
+    exit 0
+  fi
   emit_block "CC Autopilot. git pull. Read reviews/CC_INBOX.md and reviews/CC_AUTOPILOT_CC.md. Execute the ticket now. After compact do not idle — inspect again. Do not ask the user. Do not stop until WAIT_CURSOR or WAIT_USER."
   exit 0
 fi
