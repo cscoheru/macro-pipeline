@@ -2,8 +2,8 @@
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
   "inbox_status": "DO",
-  "ticket": "reviews/CLAIM_MINIMAX_M3_BATCH4_KICKOFF_2026-08-26.md",
+  "ticket": "reviews/CLAIM_MINIMAX_M3_BATCH5_KICKOFF_2026-08-26.md",
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 26,
-  "note": "DO: MiniMax-M3 claim batch4 5 streams; no DeepSeek; batch3 PASS 5/5"
+  "cursor_seq": 27,
+  "note": "DO: MiniMax-M3 claim batch5 5 streams; no DeepSeek; batch4 PASS 5/5 accepted 20"
 }

@@ -257,3 +257,8 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 
 5/5 analyze；accepted 13。`2zyAnqllesM` 补跑成功。`eeMeb48BT5w` 无 candidate。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH3_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH4_KICKOFF`。
+
+### Cursor 16:59 — batch4 DONE，派 batch5
+
+5/5 analyze；accepted 20。拒因全 R2。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH4_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH5_KICKOFF`。

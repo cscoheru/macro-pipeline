@@ -40,4 +40,5 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 13. [x] MiniMax-M3 抽 claim 首批 5 streams（analyze 5/5；accepted 19；拒因 R2）  
 14. [x] MiniMax-M3 抽 claim 第 2 批 5 streams（4/5 analyze；accepted 18；`2zyAnqllesM` invalid JSON）  
 15. [x] MiniMax-M3 抽 claim 第 3 批（5/5 analyze；accepted 13；`2zyAnqllesM` 补跑成功）  
-16. [ ] MiniMax-M3 抽 claim 第 4 批 5 streams（工单 `CLAIM_MINIMAX_M3_BATCH4_KICKOFF`）
+16. [x] MiniMax-M3 抽 claim 第 4 批 5 streams（analyze 5/5；accepted 20；拒因 R2）  
+17. [ ] MiniMax-M3 抽 claim 第 5 批 5 streams（工单 `CLAIM_MINIMAX_M3_BATCH5_KICKOFF`）
