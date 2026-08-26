@@ -449,6 +449,9 @@ class MiniMaxInsightProvider:
             "response_format": {"type": "json_object"},
             "max_tokens": self.config.max_tokens,
             "stream": False,
+            # MiniMax-M3 thinks by default; disable so claim JSON does not
+            # burn the token plan the way deepseek-reasoner did.
+            "thinking": {"type": "disabled"},
         }
 
     def generate(self, fact_pack, *, prompt=None, schema=None):

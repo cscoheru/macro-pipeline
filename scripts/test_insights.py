@@ -592,6 +592,17 @@ def test_build_provider_factory_selects_minimax():
     assert isinstance(p, insight_provider.MiniMaxInsightProvider)
 
 
+def test_minimax_payload_disables_thinking():
+    cfg = insight_provider.ProviderConfig(
+        provider="minimax", api_key="mk-test", max_retries=0,
+        model="MiniMax-M3",
+    )
+    p = insight_provider.MiniMaxInsightProvider(cfg)
+    payload = p._payload({"facts": []}, "prompt", {"type": "object"})
+    assert payload["thinking"] == {"type": "disabled"}
+    assert payload["model"] == "MiniMax-M3"
+
+
 # ---------------------------------------------------------------------------
 # Publisher
 # ---------------------------------------------------------------------------

@@ -234,3 +234,7 @@ INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
 
 1/1 转写+import PASS；FAIL=0。store SHA 未变（`07d418dc…`）。streams **50/50**。
 报告 `reviews/ASR_EXPAND5J_REPORT_2026-08-26.md`。INBOX=`WAIT_USER` 队列空。
+
+### Cursor 16:30 — MiniMax-M3 claim 开跑
+
+用户授权 MiniMax-M3（不用 DeepSeek）。env 仅本地 `houchen_analyze.env`。下一刀 `CLAIM_MINIMAX_M3_BATCH1_KICKOFF`（5 streams）。

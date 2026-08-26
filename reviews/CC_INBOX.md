@@ -9,19 +9,19 @@
 ## 状态
 
 ```text
-STATUS=WAIT_USER
+STATUS=DO
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `WAIT_USER` |
-| **工单** | 无（队列空） |
+| **STATUS** | `DO` |
+| **工单** | `reviews/CLAIM_MINIMAX_M3_BATCH1_KICKOFF_2026-08-26.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
 | **已完成（勿重做）** | 试点 3；扩 5；5b–5j 转写+import。streams **50/50**。**禁止 DeepSeek** |
-| **还要做** | 无。shorts 忽略。analyze/render DEFER |
-| **更新** | 2026-08-26 15:45 Cursor：5j PASS 1/1，`8GXfASgyo1A` 入库。队列空 |
+| **还要做** | MiniMax-M3 抽 claim 首批 5 streams：analyze → validate → render。禁止 ASR。**禁止 Wait pid 74695** |
+| **更新** | 2026-08-26 16:30 Cursor：用户授权 MiniMax-M3 抽 claim |
 
-队列空。Stop。禁止再开 `asr-transcribe`。禁止 Wait pid 74695。
+完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 
 ### STATUS 枚举
 
