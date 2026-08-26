@@ -35,4 +35,5 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 8. [x] ASR 再扩 5f streams（零 DeepSeek；5/5 入库）  
 9. [x] ASR 再扩 5g streams（零 DeepSeek；5/5 入库）  
 10. [x] ASR 再扩 5h streams（零 DeepSeek；5/5 入库）  
-11. [ ] ASR 再扩 5i streams（最后 5 条，含 2 SPECIAL；工单 `ASR_EXPAND5I_KICKOFF`）
+11. [x] ASR 再扩 5i streams（零 DeepSeek；4/5 入库；`8GXfASgyo1A` 下载 FAIL）  
+12. [ ] ASR 5j 补下 `8GXfASgyo1A`（工单 `ASR_EXPAND5J_KICKOFF`）
