@@ -272,3 +272,8 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 
 4/5 analyze；accepted 5。`H8H_pVRdkKo` `provider_error` invalid JSON。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH6_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH7_KICKOFF`（首条补跑）。
+
+### Cursor 17:11 — batch7 DONE，派 batch8
+
+5/5 analyze；accepted 32。`H8H_pVRdkKo` 补跑成功。
+报告 `reviews/CLAIM_MINIMAX_M3_BATCH7_REPORT_2026-08-26.md`。下一刀 `CLAIM_MINIMAX_M3_BATCH8_KICKOFF`。
