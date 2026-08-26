@@ -16,4 +16,6 @@ python3 scripts/cc_autopilot_inspect.py
 
 硬禁令：已有 `asr-transcribe` pid 或 `.lock` → 不准再开；不准 `rm` ASR lock/tmp。
 
+**禁止 Wait / 监听 Cursor Autopilot 巡检 loop。** 它是常驻 `sleep 120`（现 pid **74695**），**不会退出**。那不是工单、也不是 whisper。whisper 已在跑 → 只 Stop，hook 会 poll。
+
 当前工单以 `reviews/CC_INBOX.md` 为准。

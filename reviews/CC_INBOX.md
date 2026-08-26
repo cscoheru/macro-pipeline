@@ -18,7 +18,7 @@ STATUS=DO
 | **工单** | `reviews/ASR_EXPAND5F_KICKOFF_2026-08-26.md` |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
 | **已完成（勿重做）** | 试点 3；扩 5；5b；5c；5d 4/5；5e 转写+import 5/5（含 `kZUwR4ORFH4` 补下）。**禁止 DeepSeek** |
-| **还要做** | 再扩 5f streams：asr-transcribe → import。有 pid/lock 禁止第二路 |
+| **还要做** | 再扩 5f streams：asr-transcribe → import。有 pid/lock 禁止第二路。**禁止 Wait pid 74695**（Autopilot 巡检，不会退出） |
 | **更新** | 2026-08-26 06:53 Cursor：5e PASS 5/5，按计划续 5f |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
