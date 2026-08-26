@@ -296,3 +296,7 @@ batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽�
 ### Cursor 21:06 — catchup PASS，队列空
 
 验收 `reviews/POST_CLAIM_CATCHUP_ACCEPTANCE_2026-08-26.md`。概念 138 / 视频 97 / 合计 235 published。14 videos：10+1 MiniMax 成功；4 支 HTTP 422 `input new_sensitive` DEFER（Cursor 再试一次仍失败）。store `b57ce29f…` 未写。协议 22–24 划掉。INBOX=`WAIT_USER`「队列空」。
+
+### Cursor 21:45 — 不要用 WAIT_USER 把 CC 停掉
+
+用户问为什么不让 CC 跑。原因：Cursor 按协议第 5 条写了 WAIT_USER，CC 合法退出。本地 streams/videos 确已收完，但待命应是 WAIT_CURSOR + hook poll，不是把 worker 关掉。INBOX 改回 `WAIT_CURSOR`。下一张真正干活的 `DO` 仍需新工单（637 catalog 仍要短词）。

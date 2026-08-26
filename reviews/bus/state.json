@@ -1,9 +1,9 @@
 {
   "protocol_version": 1,
   "watch_until": "2026-08-27T16:00:00+00:00",
-  "inbox_status": "WAIT_USER",
+  "inbox_status": "WAIT_CURSOR",
   "ticket": null,
   "store_sha_frozen": "4a8e409b7279b72a57364ef735f5f6066a20b6d99352d676dc94d9a549e8a43c",
-  "cursor_seq": 34,
-  "note": "WAIT_USER queue empty; POST_CLAIM_CATCHUP PASS; 4 videos MiniMax 422 DEFER; no 637/shorts/cloud ASR"
+  "cursor_seq": 35,
+  "note": "WAIT_CURSOR hook poll; local queue empty; do not WAIT_USER just because queue empty while user wants CC alive; no 637/shorts/cloud ASR"
 }
