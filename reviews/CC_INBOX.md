@@ -9,17 +9,18 @@
 ## 状态
 
 ```text
-STATUS=DO
+STATUS=WAIT_CURSOR
 ```
 
 | 字段 | 值 |
 |------|-----|
-| **STATUS** | `DO` |
-| **工单** | `reviews/POST_CLAIM_CATCHUP_KICKOFF_2026-08-26.md` |
+| **STATUS** | `WAIT_CURSOR` |
+| **工单** | `reviews/POST_CLAIM_CATCHUP_KICKOFF_2026-08-26.md`（**已完成**） |
+| **现况** | A 概念 138 publish；B stream 0 待 publish（Cursor 已 50/50）；C MiniMax 14 videos: 10 ✅ / 1 ✅CC / **4 DEFER（MiniMax content filter 422）** |
 | **常驻** | `reviews/CC_AUTOPILOT_CC.md` |
-| **已完成（勿重做）** | 试点 3；扩 5；5b–5j ASR。MiniMax-M3 claim batch1–9 streams。**禁止 DeepSeek** |
-| **还要做** | 概念 refresh + stream/video publish + videos 14 支 MiniMax。有 analyze pid 禁止第二路。禁止 ASR。**禁止 Wait pid 74695** |
-| **更新** | 2026-08-26 20:43 Cursor：用户授权自行裁定；637/shorts/云 ASR 仍不做 |
+| **已完成（勿重做）** | 试点 3；扩 5；5b–5j；MiniMax batch1–9 + CC f_jd_j3eEuE；POST_CLAIM_CATCHUP A+B+C |
+| **报告** | `reviews/POST_CLAIM_CATCHUP_REPORT_2026-08-26.md` |
+| **更新** | 2026-08-26 20:55 CC：235 total published（+18 net）；4 videos DEFER（MiniMax HTTP 422 input new_sensitive） |
 
 完成后 `WAIT_CURSOR`（不要 idle；Stop 让 hook 接着 poll）。
 
