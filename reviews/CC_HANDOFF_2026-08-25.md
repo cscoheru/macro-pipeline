@@ -243,3 +243,7 @@ INBOX=DO → 工单 `reviews/ASR_EXPAND5B_KICKOFF_2026-08-25.md`：
 
 5/5 analyze success（minimax）。accepted 19 / rejected 20（全 R2）。`8GXfASgyo1A` 无 candidate。render 5/5。store 本批未变 `b57ce29f…`。
 报告 `reviews/CLAIM_MINIMAX_M3_BATCH1_REPORT_2026-08-26.md`。INBOX=`WAIT_CURSOR`。
+
+### Cursor 16:45 — 验收 batch1，派 batch2
+
+batch1 PASS。下一刀 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`（5 streams，未抽过 claim）。

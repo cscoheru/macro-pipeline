@@ -37,4 +37,5 @@ Cursor **自动验收 + 派下一刀**，不叫用户。仅下列情况写 `WAIT
 10. [x] ASR 再扩 5h streams（零 DeepSeek；5/5 入库）  
 11. [x] ASR 再扩 5i streams（零 DeepSeek；4/5 入库；`8GXfASgyo1A` 下载 FAIL）  
 12. [x] ASR 5j 补下 `8GXfASgyo1A`（零 DeepSeek；1/1 入库）。streams 50/50  
-13. [ ] MiniMax-M3 抽 claim 首批 5 streams（工单 `CLAIM_MINIMAX_M3_BATCH1_KICKOFF`）
+13. [x] MiniMax-M3 抽 claim 首批 5 streams（analyze 5/5；accepted 19；拒因 R2）  
+14. [ ] MiniMax-M3 抽 claim 第 2 批 5 streams（工单 `CLAIM_MINIMAX_M3_BATCH2_KICKOFF`）
